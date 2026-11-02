@@ -1,9 +1,10 @@
-*.svg
-*.json
-*.v 
-*.sv
+# Generated output in the repository root
+/*.svg
+/*.json
+/*.v
+/*.sv
 
-# Exclude all SystemVerilog files in subdirectories of ex_design
-!ex_design/*/*.sv
-# Exclude example designs svg files
-!results/*.svg
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store

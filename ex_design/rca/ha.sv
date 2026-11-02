@@ -1,6 +1,5 @@
 // 2-input half adder
-module ha #(
-) (
+module ha (
   input logic a,
   input logic b,
   output logic s,

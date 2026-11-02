@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yosys shellcheck unzip
+          npm install -g netlistsvg
+          ./veriview.sh --install-deps -y
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test

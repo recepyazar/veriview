@@ -28,20 +28,20 @@
     <g s:x="3" s:y="20" s:pid="B"/>
     <g s:x="25" s:y="12.5" s:pid="Y"/>
   </g>
-  <g s:type="generic" transform="translate(227,77.5)" s:width="30" s:height="40" id="cell_$procdff$4">
-    <text x="15" y="-4" class="nodelabel cell_$procdff$4" s:attribute="ref">$adff</text>
-    <rect width="30" height="60" s:generic="body" class="cell_$procdff$4"/>
-    <g transform="translate(0,10)" s:x="0" s:y="10" s:pid="in0" id="port_$procdff$4~ARST">
-      <text x="-3" y="-4" class="inputPortLabel cell_$procdff$4">ARST</text>
+  <g s:type="generic" transform="translate(227,77.5)" s:width="30" s:height="40" id="cell_$procdff$8">
+    <text x="15" y="-4" class="nodelabel cell_$procdff$8" s:attribute="ref">$adff</text>
+    <rect width="30" height="60" s:generic="body" class="cell_$procdff$8"/>
+    <g transform="translate(0,10)" s:x="0" s:y="10" s:pid="in0" id="port_$procdff$8~ARST">
+      <text x="-3" y="-4" class="inputPortLabel cell_$procdff$8">ARST</text>
     </g>
-    <g transform="translate(0,30)" s:x="0" s:y="10" s:pid="in0" id="port_$procdff$4~CLK">
-      <text x="-3" y="-4" class="inputPortLabel cell_$procdff$4">CLK</text>
+    <g transform="translate(0,30)" s:x="0" s:y="10" s:pid="in0" id="port_$procdff$8~CLK">
+      <text x="-3" y="-4" class="inputPortLabel cell_$procdff$8">CLK</text>
     </g>
-    <g transform="translate(0,50)" s:x="0" s:y="10" s:pid="in0" id="port_$procdff$4~D">
-      <text x="-3" y="-4" class="inputPortLabel cell_$procdff$4">D</text>
+    <g transform="translate(0,50)" s:x="0" s:y="10" s:pid="in0" id="port_$procdff$8~D">
+      <text x="-3" y="-4" class="inputPortLabel cell_$procdff$8">D</text>
     </g>
-    <g transform="translate(30,10)" s:x="30" s:y="10" s:pid="out0" id="port_$procdff$4~Q">
-      <text x="5" y="-4" style="fill:#000; stroke:none" class="cell_$procdff$4">Q</text>
+    <g transform="translate(30,10)" s:x="30" s:y="10" s:pid="out0" id="port_$procdff$8~Q">
+      <text x="5" y="-4" style="fill:#000; stroke:none" class="cell_$procdff$8">Q</text>
     </g>
   </g>
   <g s:type="inputExt" transform="translate(137,98)" s:width="30" s:height="20" id="cell_clk">

@@ -1,159 +1,205 @@
-# VeriView 
+# VeriView
 
-**VeriView**, Verilog and SystemVerilog designs are instantly converted into professional, high-quality SVG schematics directly from the command line.
+[![CI](https://github.com/recepyazar/veriview/actions/workflows/ci.yml/badge.svg)](https://github.com/recepyazar/veriview/actions/workflows/ci.yml)
 
-It acts as a wrapper around **Yosys** and **netlistsvg**, automating the entire flow: dependency installation, synthesis, JSON conversion, and schematic rendering.
+**VeriView** turns Verilog and SystemVerilog designs into SVG schematics from the command line.
+
+It wraps **Yosys** and **netlistsvg** (plus, optionally, **sv2v** or **yosys-slang** for full SystemVerilog support): it reads your sources or `.f` file lists, synthesizes a netlist and renders it as an SVG.
 
 ## Features
 
-- **Zero-Setup:** Automatically checks and installs missing dependencies (`yosys`, `nodejs`, `npm`, `netlistsvg`) on the first run.
-- **Language Support:** Auto-detects **Verilog** (`.v`) and **SystemVerilog** (`.sv`).
-- **File List Support:** Fully supports `.f` file lists with smart relative path resolution.
-- **Dark Mode Friendly:** Forces a white background on the generated SVG for better visibility in dark-themed viewers.
-- **WSL Integration:** Automatically opens the generated schematic in Windows Explorer if running on WSL.
-- **Custom Output:** Define your own output filename and directory.
+- **Verilog & SystemVerilog** (`.v`, `.sv`) – auto-detected per file.
+- **Full SystemVerilog via fallback frontends** – if Yosys' built-in parser can't handle a construct (e.g. unpacked array ports), VeriView automatically retries with [yosys-slang](https://github.com/povik/yosys-slang) or [sv2v](https://github.com/zachjs/sv2v).
+- **File lists (`.f`)** – `+incdir+`, `+define+`, nested `-f`/`-F`, `-v`, `$VAR`/`${VAR}`/`$(VAR)` and comments.
+- **Include dirs & defines** – `-I` and `-D` on the command line.
+- **Hierarchy control** – keep sub-modules as boxes or `--flatten` them; `--split` renders one SVG per module.
+- **Dark-mode friendly** – injects a background (`--bg white` by default, `--bg none` to disable).
+- **Open the result** – `--open` uses `xdg-open`, macOS `open`, or Windows Explorer on WSL.
+- **Optional dependency installer** – `--install-deps` installs Yosys, Node.js, netlistsvg and sv2v.
 
-## Prerequisites
+## Requirements
 
-The script supports **Linux** (Debian/Ubuntu, Fedora, Arch) and **macOS**.
-*Note: The script attempts to install these automatically if missing.*
+Linux (Debian/Ubuntu, Fedora, Arch), macOS or WSL with:
 
-- **Yosys** (Open Source Synthesis Suite)
-- **Node.js & npm** (Required for netlistsvg)
-- **netlistsvg** (The rendering engine)
+| Tool | Needed for |
+| :--- | :--- |
+| [Yosys](https://github.com/YosysHQ/yosys) | synthesis (required) |
+| [netlistsvg](https://github.com/nturley/netlistsvg) + Node.js | rendering (required) |
+| [sv2v](https://github.com/zachjs/sv2v) **or** [yosys-slang](https://github.com/povik/yosys-slang) | SystemVerilog beyond Yosys' built-in parser (optional) |
+
+Install whatever is missing with:
+
+```bash
+./veriview.sh --install-deps      # asks before using sudo; add -y to skip the prompt
+```
+
+sv2v is installed to `~/.local/bin` without sudo. If dependencies are missing during a normal run, VeriView asks whether to install them (interactive terminals only).
 
 ## Installation
 
-Simply download the script and make it executable.
-
 ```bash
-# 1. Clone this repo
-# 2. Give execution permission to file
+git clone https://github.com/recepyazar/veriview.git
+cd veriview
 chmod +x veriview.sh
+./veriview.sh --install-deps
 ```
 
 ## Usage
 
-### Basic Syntax
-
 ```bash
-./veriview.sh <input_file> [top_module] [options]
+./veriview.sh [options] <input>... [top_module]
 ```
 
-### Options
+`<input>` is one or more `.v`/`.sv` files and/or `.f` file lists.
 
-| Flag | Description |
+| Option | Description |
 | :--- | :--- |
-| `-o`, `--output <path>` | Specify custom output filename/path (e.g., `./build/schematic.svg`). |
-| `-h`, `--help` | Show the help message. |
-| `-f`, `--flatten` | Flatten the design hierarchy (expand sub-modules). |
+| `-t`, `--top <name>` | Top module (default: auto-detected). The legacy positional form `veriview.sh design.f top` also works. |
+| `-o`, `--output <path>` | Output SVG path (a path ending in `/` is treated as a directory). With `--split`: output directory. |
+| `-f`, `-F <file.f>` | Read a file list. |
+| `-I`, `--incdir <dir>` | Add an include directory (repeatable). |
+| `-D`, `--define <N[=V]>` | Add a preprocessor define (repeatable). |
+| `--flatten` | Flatten the hierarchy (expand sub-modules). |
+| `--split` | Render every module into its own SVG. |
+| `--frontend <name>` | `auto` (default), `yosys`, `sv2v` or `slang`. |
+| `--skin <file.svg>` | Custom [netlistsvg skin](https://github.com/nturley/netlistsvg#skins). |
+| `--bg <color\|none>` | Background color (default `white`). |
+| `--keep-json` | Keep the Yosys JSON netlist next to the SVG. |
+| `--open` | Open the generated SVG. |
+| `--install-deps` | Install missing dependencies. |
+| `-y`, `--yes` | Don't ask for confirmation when installing. |
+| `-q`, `--quiet` | Only print warnings and errors. |
+| `-V`, `--version` / `-h`, `--help` | Version / help. |
 
-### Examples
+> **Breaking change in 4.0:** `-f` now means *file list* (as in other EDA tools). Use `--flatten` to flatten the hierarchy.
 
-**1. Single SystemVerilog File**
-Generates `counter.svg` in the current directory.
-```bash
-./veriview.sh counter.sv
+If `-o` is not given, the output is `<top_module>.svg` (when a top is given) or `<first_input_name>.svg` in the current directory.
+
+### SystemVerilog frontends
+
+With `--frontend auto`, VeriView first tries Yosys' built-in parser. If that fails and the sources contain SystemVerilog, it retries with **yosys-slang** (if the plugin is installed), then **sv2v** (if installed). This handles constructs such as unpacked array ports:
+
+```systemverilog
+input logic [DATA_WIDTH-1:0] i_data [NUM_INPUTS],
 ```
 
-**2. Specifying a Top Module**
-Useful if the file contains multiple modules.
-```bash
-./veriview.sh alu.v alu_top
-```
+sv2v converts these into packed vectors, so in the schematic they appear as one wide bus (e.g. `i_data[15:0]`).
 
-**3. Using a File List (.f)**
-Compiles all files listed in `design.f`.
-```bash
-./veriview.sh design.f cpu_core
-```
-
-**4. Custom Output Path**
-Generates the SVG in a specific folder (creates folder if missing).
-```bash
-./veriview.sh cpu_top.sv -o ./results/my_cpu.svg
-```
-
-## Working with File Lists (.f)
-
-VeriView supports standard `.f` files used in EDA tools.
-- Supports **comments** (`//` or `#`).
-- Supports **relative paths** (relative to the `.f` file's location).
-
-**Example `design.f`:**
+## File lists (.f)
 
 ```text
-// Interfaces
-../pkg/types.sv
+// comments with // or #
++incdir+../include+$(PROJ)/common/include
++define+SYNTHESIS+WIDTH=8
 
-// Design Files
+../pkg/types.sv
 alu.sv
 decoder.sv
-
-// Top Level
+-f ${PROJ}/ip/fifo.f        // nested file list
+-v lib/cells.v              // library file
 cpu_top.sv
 ```
-## Try with Example Designs
 
-You can test the tool with the provided example designs to see how it handles different scenarios.
+- Relative paths are resolved against the directory of the `.f` file.
+- Environment variables are expanded (`$VAR`, `${VAR}`, `$(VAR)`).
+- `-y` and `+libext+` are ignored with a warning.
 
-### 1. Run a Single SystemVerilog File
-Synthesize a simple D-Flip Flop and save the output to the results folder.
+## Examples
 
-```bash
-./veriview.sh ex_design/dff.sv -o ./results/dff.svg
-```
+Example designs live in `ex_design/`:
 
-**Output:**
-<br>
-<img src="./results/dff.svg" alt="DFF Schematic" width="600"/>
-<br>
+| Path | Description |
+| :--- | :--- |
+| `counter.sv` | Parameterized up-counter |
+| `shift_reg.sv` | Parameterized shift register with enable; unpacked array output (needs sv2v or yosys-slang) |
+| `seqdect.sv` | Serial sequence detector with an elaboration-time parameter check |
+| `rca/` (`rca.f`) | Ripple-carry adder built from full/half adders (hierarchical) |
+| `gray/` (`gray.f`) | Binary→Gray→Binary round trip (`b2g2b`), optimizes to a pass-through when flattened |
+| `mux/mux_basic.sv` | 2:1 multiplexer |
+| `mux/mux.sv` | N:1 multiplexer with unpacked array ports (needs sv2v or yosys-slang) |
 
----
+All results below are generated with `make examples`.
 
-### 2. Run with a File List (.f)
-Synthesize a Ripple Carry Adder (RCA) using a file list that includes sub-modules.
-
-```bash
-./veriview.sh ex_design/rca/rca.f -o ./results/rca.svg
-```
-
-**Output:**
-<br>
-<img src="./results/rca.svg" alt="RCA Schematic" width="800"/>
-<br>
-
----
-
-### 3. Run with .f and Specific Top Module
-Extract and synthesize only the Full Adder (`fa`) module from the same RCA file list.
+**Single file**
 
 ```bash
-./veriview.sh ex_design/rca/rca.f fa -o ./results/fa.svg
+./veriview.sh ex_design/counter.sv -o results/counter.svg
 ```
 
-**Output:**
-<br>
-<img src="./results/fa.svg" alt="Full Adder Schematic" width="600"/>
-<br>
+<img src="./results/counter.svg" alt="Counter schematic" width="600"/>
 
-### 4. Flattened Hierarchy (Detailed View)
-By default, sub-modules are shown as black boxes. Use `--flatten` to expand them and see the internal logic of the entire design.
+**Shift register with an unpacked array output (needs sv2v or yosys-slang)**
 
 ```bash
-./veriview.sh ex_design/rca/rca.f --flatten -o ./results/rca_flat.svg
+./veriview.sh ex_design/shift_reg.sv -o results/shift_reg.svg
 ```
 
-**Output:**
-<br>
-<img src="./results/rca_flat.svg" alt="Flattened Schematic" width="800"/>
-<br>
+<img src="./results/shift_reg.svg" alt="Shift register schematic" width="700"/>
+
+**File list (hierarchical)**
+
+```bash
+./veriview.sh ex_design/rca/rca.f -o results/rca.svg
+```
+
+<img src="./results/rca.svg" alt="RCA schematic" width="800"/>
+
+**File list with a specific top module**
+
+```bash
+./veriview.sh ex_design/rca/rca.f -t fa -o results/fa.svg
+```
+
+<img src="./results/fa.svg" alt="Full adder schematic" width="600"/>
+
+**Flattened hierarchy**
+
+```bash
+./veriview.sh ex_design/rca/rca.f --flatten -o results/rca_flat.svg
+```
+
+<img src="./results/rca_flat.svg" alt="Flattened RCA schematic" width="800"/>
+
+**Gray code round trip (hierarchical vs. flattened)**
+
+```bash
+./veriview.sh ex_design/gray/gray.f -o results/b2g2b.svg
+./veriview.sh ex_design/gray/gray.f --flatten -o results/b2g2b_flat.svg
+```
+
+<img src="./results/b2g2b.svg" alt="b2g2b schematic" width="600"/>
+<img src="./results/b2g2b_flat.svg" alt="b2g2b flattened schematic" width="400"/>
+
+**One SVG per module**
+
+```bash
+./veriview.sh ex_design/rca/rca.f --split -o results/split/
+```
+
+**Unpacked array ports (needs sv2v or yosys-slang)**
+
+```bash
+./veriview.sh ex_design/mux/mux.sv -o results/mux.svg
+```
+
+<img src="./results/mux.svg" alt="Mux with unpacked array ports" width="500"/>
+
+## Development
+
+```bash
+make test       # run the test suite (tests/run_tests.sh)
+make lint       # shellcheck
+make examples   # regenerate results/*.svg
+```
+
+CI runs lint and tests on every push and pull request.
 
 ## Troubleshooting
 
-- **"Module Re-definition" Error:** Ensure you are not using `` `include `` directives inside your Verilog files if you are also listing them in a `.f` file.
-- **Blank/Black Image:** The script automatically injects a white background. If you still see a black image, try opening it in a web browser (Chrome/Edge).
+- **`syntax error` on valid SystemVerilog** – Yosys' built-in parser supports only part of SystemVerilog. Install sv2v (`./veriview.sh --install-deps`) or yosys-slang.
+- **"Module re-definition" error** – don't `` `include `` source files that are also listed in the `.f` file.
+- **Black/blank image** – VeriView injects a white background by default; if your viewer still shows black, open the SVG in a web browser.
 
 ## License
 
-This project is open-source. Feel free to modify and distribute.
+[MIT](LICENSE)

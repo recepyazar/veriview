@@ -9,9 +9,9 @@ module counter #(
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n)
-      count = '0;
+      count <= '0;
     else
-      count = count + 1;
+      count <= count + 1;
   end 
     
 endmodule

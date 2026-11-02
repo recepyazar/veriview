@@ -8,3 +8,12 @@
 .vscode/
 .idea/
 .DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/

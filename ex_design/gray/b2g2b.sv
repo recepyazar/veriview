@@ -1,4 +1,5 @@
-// Binary to Gray to Binary converter - optimizes to a pass-through (o_data == i_data) 
+// Binary to Gray to Binary round trip: functionally a pass-through
+// (o_data == i_data), but generic Yosys opt passes keep the XOR logic.
 module b2g2b #(
     parameter WIDTH = 3
 ) (

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "veriview"
+dynamic = ["version"]
+description = "Generate SVG schematics from Verilog/SystemVerilog using Yosys and netlistsvg"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Recep Salih" }]
+requires-python = ">=3.9"
+keywords = ["verilog", "systemverilog", "yosys", "netlistsvg", "schematic", "eda"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+    "Environment :: Console",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.5"]
+
+[project.scripts]
+veriview = "veriview.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/recepyazar/veriview"
+
+[tool.hatch.version]
+path = "src/veriview/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/veriview"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["tools: needs yosys and netlistsvg", "sv: needs sv2v or yosys-slang"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

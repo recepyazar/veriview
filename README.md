@@ -16,10 +16,11 @@ It wraps **Yosys** and **netlistsvg** (plus, optionally, **sv2v** or **yosys-sla
 - **Dark-mode friendly** – injects a background (`--bg white` by default, `--bg none` to disable).
 - **Open the result** – `--open` uses `xdg-open`, macOS `open`, or Windows Explorer on WSL.
 - **Optional dependency installer** – `--install-deps` installs Yosys, Node.js, netlistsvg and sv2v.
+- **Pure Python, no Python dependencies** – a single `pip install`; also usable as a library.
 
 ## Requirements
 
-Linux (Debian/Ubuntu, Fedora, Arch), macOS or WSL with:
+Python 3.9+ on Linux (Debian/Ubuntu, Fedora, Arch), macOS, WSL or Windows, plus:
 
 | Tool | Needed for |
 | :--- | :--- |
@@ -30,31 +31,39 @@ Linux (Debian/Ubuntu, Fedora, Arch), macOS or WSL with:
 Install whatever is missing with:
 
 ```bash
-./veriview.sh --install-deps      # asks before using sudo; add -y to skip the prompt
+veriview --install-deps      # asks before using sudo; add -y to skip the prompt
 ```
 
-sv2v is installed to `~/.local/bin` without sudo. If dependencies are missing during a normal run, VeriView asks whether to install them (interactive terminals only).
+sv2v is installed without sudo to `~/.local/bin` (Windows: `%LOCALAPPDATA%\veriview\bin`); VeriView finds it there even if that directory is not in `PATH`. If dependencies are missing during a normal run, VeriView asks whether to install them (interactive terminals only). On Windows, install Yosys from the [OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build) and run `npm install -g netlistsvg`.
 
 ## Installation
 
 ```bash
+pip install git+https://github.com/recepyazar/veriview.git
+veriview --install-deps
+```
+
+Or from a clone:
+
+```bash
 git clone https://github.com/recepyazar/veriview.git
 cd veriview
-chmod +x veriview.sh
-./veriview.sh --install-deps
+pip install .
 ```
+
+`./veriview.sh` still works from a clone without installing (it runs the Python package from `src/`).
 
 ## Usage
 
 ```bash
-./veriview.sh [options] <input>... [top_module]
+veriview [options] <input>... [top_module]
 ```
 
 `<input>` is one or more `.v`/`.sv` files and/or `.f` file lists.
 
 | Option | Description |
 | :--- | :--- |
-| `-t`, `--top <name>` | Top module (default: auto-detected). The legacy positional form `veriview.sh design.f top` also works. |
+| `-t`, `--top <name>` | Top module (default: auto-detected). The legacy positional form `veriview design.f top` also works. |
 | `-o`, `--output <path>` | Output SVG path (a path ending in `/` is treated as a directory). With `--split`: output directory. |
 | `-f`, `-F <file.f>` | Read a file list. |
 | `-I`, `--incdir <dir>` | Add an include directory (repeatable). |
@@ -72,6 +81,8 @@ chmod +x veriview.sh
 | `-V`, `--version` / `-h`, `--help` | Version / help. |
 
 > **Breaking change in 4.0:** `-f` now means *file list* (as in other EDA tools). Use `--flatten` to flatten the hierarchy.
+>
+> **5.0:** VeriView is now a Python package (`veriview` command). Options are unchanged; `veriview.sh` remains as a wrapper. Invalid command-line arguments now exit with code 2.
 
 If `-o` is not given, the output is `<top_module>.svg` (when a top is given) or `<first_input_name>.svg` in the current directory.
 
@@ -114,7 +125,7 @@ Example designs live in `ex_design/`:
 | `shift_reg.sv` | Parameterized shift register with enable; unpacked array output (needs sv2v or yosys-slang) |
 | `seqdect.sv` | Serial sequence detector with an elaboration-time parameter check |
 | `rca/` (`rca.f`) | Ripple-carry adder built from full/half adders (hierarchical) |
-| `gray/` (`gray.f`) | Binary→Gray→Binary round trip (`b2g2b`), optimizes to a pass-through when flattened |
+| `gray/` (`gray.f`) | Binary→Gray→Binary round trip (`b2g2b`) (functionally a pass-through) |
 | `mux/mux_basic.sv` | 2:1 multiplexer |
 | `mux/mux.sv` | N:1 multiplexer with unpacked array ports (needs sv2v or yosys-slang) |
 
@@ -123,7 +134,7 @@ All results below are generated with `make examples`.
 **Single file**
 
 ```bash
-./veriview.sh ex_design/counter.sv -o results/counter.svg
+veriview ex_design/counter.sv -o results/counter.svg
 ```
 
 <img src="./results/counter.svg" alt="Counter schematic" width="600"/>
@@ -131,7 +142,7 @@ All results below are generated with `make examples`.
 **Shift register with an unpacked array output (needs sv2v or yosys-slang)**
 
 ```bash
-./veriview.sh ex_design/shift_reg.sv -o results/shift_reg.svg
+veriview ex_design/shift_reg.sv -o results/shift_reg.svg
 ```
 
 <img src="./results/shift_reg.svg" alt="Shift register schematic" width="700"/>
@@ -139,7 +150,7 @@ All results below are generated with `make examples`.
 **File list (hierarchical)**
 
 ```bash
-./veriview.sh ex_design/rca/rca.f -o results/rca.svg
+veriview ex_design/rca/rca.f -o results/rca.svg
 ```
 
 <img src="./results/rca.svg" alt="RCA schematic" width="800"/>
@@ -147,7 +158,7 @@ All results below are generated with `make examples`.
 **File list with a specific top module**
 
 ```bash
-./veriview.sh ex_design/rca/rca.f -t fa -o results/fa.svg
+veriview ex_design/rca/rca.f -t fa -o results/fa.svg
 ```
 
 <img src="./results/fa.svg" alt="Full adder schematic" width="600"/>
@@ -155,7 +166,7 @@ All results below are generated with `make examples`.
 **Flattened hierarchy**
 
 ```bash
-./veriview.sh ex_design/rca/rca.f --flatten -o results/rca_flat.svg
+veriview ex_design/rca/rca.f --flatten -o results/rca_flat.svg
 ```
 
 <img src="./results/rca_flat.svg" alt="Flattened RCA schematic" width="800"/>
@@ -163,8 +174,8 @@ All results below are generated with `make examples`.
 **Gray code round trip (hierarchical vs. flattened)**
 
 ```bash
-./veriview.sh ex_design/gray/gray.f -o results/b2g2b.svg
-./veriview.sh ex_design/gray/gray.f --flatten -o results/b2g2b_flat.svg
+veriview ex_design/gray/gray.f -o results/b2g2b.svg
+veriview ex_design/gray/gray.f --flatten -o results/b2g2b_flat.svg
 ```
 
 <img src="./results/b2g2b.svg" alt="b2g2b schematic" width="600"/>
@@ -173,30 +184,49 @@ All results below are generated with `make examples`.
 **One SVG per module**
 
 ```bash
-./veriview.sh ex_design/rca/rca.f --split -o results/split/
+veriview ex_design/rca/rca.f --split -o results/split/
 ```
 
 **Unpacked array ports (needs sv2v or yosys-slang)**
 
 ```bash
-./veriview.sh ex_design/mux/mux.sv -o results/mux.svg
+veriview ex_design/mux/mux.sv -o results/mux.svg
 ```
 
 <img src="./results/mux.svg" alt="Mux with unpacked array ports" width="500"/>
 
+## Using it from Python
+
+```python
+from veriview.cli import main
+
+main(["design.f", "-t", "cpu_top", "-o", "build/cpu.svg"])   # returns the exit code
+```
+
 ## Development
 
 ```bash
-make test       # run the test suite (tests/run_tests.sh)
-make lint       # shellcheck
+make dev        # create .venv, pip install -e '.[dev]'
+make test       # pytest (unit + end-to-end tests; tool-dependent tests are skipped if tools are missing)
+make lint       # ruff
 make examples   # regenerate results/*.svg
 ```
 
-CI runs lint and tests on every push and pull request.
+Code layout (`src/veriview/`):
+
+| Module | Responsibility |
+| :--- | :--- |
+| `cli.py` | argument parsing, orchestration |
+| `filelist.py` | source collection and `.f` parsing |
+| `synth.py` | Yosys scripts, frontend fallback (yosys → slang → sv2v) |
+| `render.py` | netlistsvg, SVG post-processing, `--open` |
+| `tools.py` | finding/installing yosys, netlistsvg, sv2v |
+
+CI runs lint and tests on Python 3.9 and 3.13 for every push and pull request.
 
 ## Troubleshooting
 
-- **`syntax error` on valid SystemVerilog** – Yosys' built-in parser supports only part of SystemVerilog. Install sv2v (`./veriview.sh --install-deps`) or yosys-slang.
+- **`syntax error` on valid SystemVerilog** – Yosys' built-in parser supports only part of SystemVerilog. Install sv2v (`veriview --install-deps`) or yosys-slang.
 - **"Module re-definition" error** – don't `` `include `` source files that are also listed in the `.f` file.
 - **Black/blank image** – VeriView injects a white background by default; if your viewer still shows black, open the SVG in a web browser.
 

@@ -24,8 +24,8 @@ def add_background(svg_text: str, color: str) -> str:
     return _SVG_OPEN_RE.sub(lambda m: m.group(0) + rect, svg_text, count=1)
 
 
-def render(json_path: Path, svg_path: Path, *, skin: Path | None = None,
-           bg: str = "white", keep_json: bool = False) -> None:
+def run_netlistsvg(json_path: Path, svg_path: Path, skin: Path | None = None) -> str:
+    """Render a Yosys JSON netlist with netlistsvg; returns the SVG text."""
     netlistsvg = find_tool("netlistsvg")
     if not netlistsvg:
         raise VeriViewError("netlistsvg not found (run with --install-deps).")
@@ -36,7 +36,13 @@ def render(json_path: Path, svg_path: Path, *, skin: Path | None = None,
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0 or not svg_path.is_file() or svg_path.stat().st_size == 0:
         raise VeriViewError(f"netlistsvg failed for {svg_path}\n{(r.stdout + r.stderr).strip()}")
-    svg_path.write_text(add_background(svg_path.read_text(encoding="utf-8"), bg), encoding="utf-8")
+    return svg_path.read_text(encoding="utf-8")
+
+
+def render(json_path: Path, svg_path: Path, *, skin: Path | None = None,
+           bg: str = "white", keep_json: bool = False) -> None:
+    svg = run_netlistsvg(json_path, svg_path, skin)
+    svg_path.write_text(add_background(svg, bg), encoding="utf-8")
     if keep_json:
         shutil.copyfile(json_path, svg_path.with_suffix(".json"))
     log.info(f"Schematic saved: {svg_path}")

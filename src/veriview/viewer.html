@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__VERIVIEW_TITLE__ · VeriView</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --border: #dde1e6; --text: #1d232b; --muted: #5f6b7a;
+    --accent: #2563eb; --on-accent: #ffffff; --accent-soft: #e6eefc; --paper: #ffffff; --link-fill: #eef4ff;
+    --schematic-filter: none;
+  }
+  :root[data-theme="dark"] {
+    --bg: #111418; --panel: #181c21; --border: #2a3038; --text: #e6e9ed; --muted: #95a0ad;
+    --accent: #6ea0ff; --on-accent: #0b1220; --accent-soft: #1c2a42; --paper: #1b1f24; --link-fill: #9dbcf7;
+    --schematic-filter: invert(0.92) hue-rotate(180deg);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111418; --panel: #181c21; --border: #2a3038; --text: #e6e9ed; --muted: #95a0ad;
+      --accent: #6ea0ff; --on-accent: #0b1220; --accent-soft: #1c2a42; --paper: #1b1f24; --link-fill: #9dbcf7;
+      --schematic-filter: invert(0.92) hue-rotate(180deg);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: 280px 1fr;
+    grid-template-areas: "head head" "side main" "side foot";
+    background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    grid-area: head; display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--border); min-width: 0;
+  }
+  header .brand { font-weight: 600; white-space: nowrap; }
+  header .brand small { color: var(--muted); font-weight: 400; margin-left: 4px; }
+  nav.crumbs { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; }
+  nav.crumbs button {
+    border: 0; background: none; color: var(--accent); cursor: pointer; padding: 2px 4px;
+    border-radius: 4px; font: inherit; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  nav.crumbs button:hover { background: var(--accent-soft); }
+  nav.crumbs button[aria-current] { color: var(--text); font-weight: 600; cursor: default; background: none; }
+  nav.crumbs .sep { color: var(--muted); }
+  .tools { display: flex; gap: 4px; }
+  .tools button {
+    border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; font: inherit; white-space: nowrap;
+  }
+  .tools button:hover { border-color: var(--accent); color: var(--accent); }
+  aside {
+    grid-area: side; display: flex; flex-direction: column; min-height: 0;
+    background: var(--panel); border-right: 1px solid var(--border);
+  }
+  aside input {
+    margin: 10px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--text); font: inherit;
+  }
+  #tree { overflow: auto; flex: 1; padding: 0 6px 12px; }
+  #tree ul { list-style: none; margin: 0; padding-left: 14px; }
+  #tree > ul { padding-left: 0; }
+  #tree .row { display: flex; align-items: center; gap: 2px; }
+  #tree .tw {
+    width: 16px; height: 16px; border: 0; background: none; color: var(--muted); cursor: pointer;
+    padding: 0; font-size: 10px; flex: none;
+  }
+  #tree .tw:disabled { visibility: hidden; }
+  #tree .node {
+    flex: 1; text-align: left; border: 0; background: none; color: var(--text); cursor: pointer;
+    padding: 3px 6px; border-radius: 4px; font: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #tree .node:hover { background: var(--accent-soft); }
+  #tree .node[aria-current] { background: var(--accent); color: var(--on-accent); }
+  #tree .node .mod { color: var(--muted); margin-left: 4px; }
+  #tree .node[aria-current] .mod { color: var(--on-accent); opacity: 0.75; }
+  #tree li.collapsed > ul, #tree li.hidden { display: none; }
+  main { grid-area: main; position: relative; min-width: 0; min-height: 0; padding: 12px; }
+  #canvas {
+    position: absolute; inset: 12px; background: var(--paper); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; cursor: grab; touch-action: none;
+  }
+  #canvas.dragging { cursor: grabbing; }
+  #canvas > svg { width: 100%; height: 100%; display: block; filter: var(--schematic-filter); user-select: none; }
+  #canvas g.vv-link { cursor: pointer; }
+  #canvas g.vv-link > rect { fill: var(--link-fill) !important; }
+  #canvas g.vv-link:hover > rect { stroke: #2563eb !important; stroke-width: 3px !important; }
+  footer {
+    grid-area: foot; padding: 6px 12px; color: var(--muted); border-top: 1px solid var(--border);
+    background: var(--panel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px;
+  }
+  .hint { position: absolute; right: 24px; bottom: 20px; color: var(--muted); font-size: 12px; pointer-events: none; }
+  @media (max-width: 720px) {
+    body { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto; grid-template-areas: "head" "side" "main" "foot"; }
+    aside { max-height: 30vh; border-right: 0; border-bottom: 1px solid var(--border); }
+    header { flex-wrap: wrap; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">VeriView<small id="version"></small></div>
+  <nav class="crumbs" id="crumbs" aria-label="Hierarchy path"></nav>
+  <div class="tools">
+    <button id="btn-up" title="Go up one level (Backspace)">↑ Up</button>
+    <button id="btn-fit" title="Fit to window (F)">Fit</button>
+    <button id="btn-svg" title="Download this schematic as SVG">SVG</button>
+    <button id="btn-theme" title="Toggle light/dark theme">◐</button>
+  </div>
+</header>
+<aside>
+  <input id="filter" type="search" placeholder="Filter instances / modules…" aria-label="Filter hierarchy">
+  <div id="tree"></div>
+</aside>
+<main>
+  <div id="canvas" tabindex="0" aria-label="Schematic"></div>
+  <div class="hint">Wheel: zoom · Drag: pan · Click a sub-module to open it</div>
+</main>
+<footer id="status"></footer>
+
+<script>
+const DATA = /*__VERIVIEW_DATA__*/null;
+
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const canvas = $("canvas"), crumbs = $("crumbs"), treeEl = $("tree"), statusEl = $("status");
+  const mods = DATA.modules;
+  $("version").textContent = "v" + DATA.version;
+
+  // ---- theme ---------------------------------------------------------------
+  const root = document.documentElement;
+  try { const t = localStorage.getItem("veriview-theme"); if (t) root.dataset.theme = t; } catch (e) {}
+  $("btn-theme").onclick = () => {
+    const dark = root.dataset.theme
+      ? root.dataset.theme === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("veriview-theme", root.dataset.theme); } catch (e) {}
+  };
+
+  // ---- hierarchy path <-> URL hash ----------------------------------------
+  // A path is a list of instance names starting below the top module.
+  const moduleOf = (path) => {
+    let m = DATA.top;
+    for (const inst of path) {
+      const next = mods[m] && mods[m].children[inst];
+      if (!next) return null;
+      m = next;
+    }
+    return m;
+  };
+  const pathFromHash = () => {
+    const h = location.hash.replace(/^#\/?/, "");
+    const path = h ? h.split("/").map(decodeURIComponent) : [];
+    return moduleOf(path) ? path : [];
+  };
+  const go = (path) => { location.hash = "/" + path.map(encodeURIComponent).join("/"); };
+
+  // ---- pan & zoom ------------------------------------------------------------
+  let svg = null, full = null, vb = null;
+  const setVB = () => svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+  const fit = () => {
+    if (!svg) return;
+    const cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1, pad = 24;
+    const scale = Math.min((cw - 2 * pad) / full.w, (ch - 2 * pad) / full.h, 2);
+    const w = cw / scale, h = ch / scale;
+    vb = { x: full.x - (w - full.w) / 2, y: full.y - (h - full.h) / 2, w, h };
+    setVB();
+  };
+  const toSvg = (cx, cy, m) => {
+    const p = svg.createSVGPoint(); p.x = cx; p.y = cy;
+    return p.matrixTransform(m || svg.getScreenCTM().inverse());
+  };
+  canvas.addEventListener("wheel", (e) => {
+    if (!svg) return;
+    e.preventDefault();
+    const p = toSvg(e.clientX, e.clientY);
+    const f = Math.exp(Math.max(-1, Math.min(1, e.deltaY * (e.deltaMode ? 0.05 : 0.0015))));
+    const nw = Math.min(Math.max(vb.w * f, full.w / 50), full.w * 20);
+    const k = nw / vb.w;
+    vb = { x: p.x - (p.x - vb.x) * k, y: p.y - (p.y - vb.y) * k, w: vb.w * k, h: vb.h * k };
+    setVB();
+  }, { passive: false });
+
+  let drag = null, moved = false;
+  canvas.addEventListener("pointerdown", (e) => {
+    if (!svg || e.button !== 0) return;
+    drag = { inv: svg.getScreenCTM().inverse(), x: e.clientX, y: e.clientY, vb: { ...vb } };
+    drag.p0 = toSvg(e.clientX, e.clientY, drag.inv);
+    moved = false;
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    if (!moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
+    if (!moved) { moved = true; canvas.classList.add("dragging"); canvas.setPointerCapture?.(e.pointerId); }
+    const p = toSvg(e.clientX, e.clientY, drag.inv);
+    vb = { ...drag.vb, x: drag.vb.x - (p.x - drag.p0.x), y: drag.vb.y - (p.y - drag.p0.y) };
+    setVB();
+  });
+  window.addEventListener("pointerup", () => { drag = null; canvas.classList.remove("dragging"); });
+  new ResizeObserver(() => fit()).observe(canvas);
+
+  // ---- rendering ---------------------------------------------------------------
+  let current = [];
+  const show = (path) => {
+    current = path;
+    const name = moduleOf(path), mod = mods[name];
+    canvas.innerHTML = mod.svg;
+    svg = canvas.querySelector("svg");
+    const w = parseFloat(svg.getAttribute("width")) || 100, h = parseFloat(svg.getAttribute("height")) || 100;
+    full = { x: 0, y: 0, w, h };
+    svg.removeAttribute("width"); svg.removeAttribute("height");
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    for (const g of svg.querySelectorAll('g[id^="cell_"]')) {
+      const inst = g.id.slice(5);
+      if (mod.children[inst]) {
+        g.classList.add("vv-link");
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        t.textContent = `${inst} : ${mods[mod.children[inst]].label} (click to open)`;
+        g.prepend(t);
+      }
+    }
+    fit();
+    renderCrumbs(); markTree();
+    const inst = path.length ? path[path.length - 1] : name;
+    document.title = `${inst} · ${mod.label} · VeriView`;
+    statusEl.textContent = [
+      `${inst} : ${mod.label}`,
+      `${mod.cells} cell${mod.cells === 1 ? "" : "s"}`,
+      `${Object.keys(mod.children).length} sub-module instance(s)`,
+      mod.src && `source: ${mod.src}`,
+    ].filter(Boolean).join("  ·  ");
+    $("btn-up").disabled = path.length === 0;
+  };
+
+  canvas.addEventListener("click", (e) => {
+    if (moved) return;
+    const g = e.target.closest && e.target.closest("g.vv-link");
+    if (g) go([...current, g.id.slice(5)]);
+  });
+
+  const renderCrumbs = () => {
+    crumbs.textContent = "";
+    const parts = [DATA.top, ...current];
+    parts.forEach((inst, i) => {
+      if (i) { const s = document.createElement("span"); s.className = "sep"; s.textContent = "›"; crumbs.append(s); }
+      const b = document.createElement("button");
+      const m = moduleOf(current.slice(0, i));
+      b.textContent = i ? inst : mods[m].label;
+      b.title = `${inst} : ${mods[m].label}`;
+      if (i === parts.length - 1) b.setAttribute("aria-current", "page");
+      else b.onclick = () => go(current.slice(0, i));
+      crumbs.append(b);
+    });
+  };
+
+  // ---- hierarchy tree ------------------------------------------------------------
+  const nodes = [];
+  const buildTree = () => {
+    const mk = (path, modName, depth) => {
+      const li = document.createElement("li");
+      const row = document.createElement("div"); row.className = "row";
+      const tw = document.createElement("button"); tw.className = "tw";
+      const btn = document.createElement("button"); btn.className = "node";
+      const inst = path.length ? path[path.length - 1] : null;
+      btn.innerHTML = "";
+      btn.append(document.createTextNode(inst || mods[modName].label));
+      if (inst) { const s = document.createElement("span"); s.className = "mod"; s.textContent = mods[modName].label; btn.append(s); }
+      btn.title = (inst ? inst + " : " : "") + mods[modName].label;
+      btn.onclick = () => go(path);
+      row.append(tw, btn); li.append(row);
+      const kids = Object.entries(mods[modName].children).sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
+      if (kids.length && depth < 64) {
+        const ul = document.createElement("ul");
+        for (const [ci, cm] of kids) ul.append(mk([...path, ci], cm, depth + 1));
+        li.append(ul);
+        if (depth >= 1) li.classList.add("collapsed");
+        tw.textContent = li.classList.contains("collapsed") ? "▶" : "▼";
+        tw.onclick = () => { li.classList.toggle("collapsed"); tw.textContent = li.classList.contains("collapsed") ? "▶" : "▼"; };
+      } else tw.disabled = true;
+      nodes.push({ li, btn, tw, key: path.join("/"), text: btn.title.toLowerCase() });
+      return li;
+    };
+    const ul = document.createElement("ul");
+    ul.append(mk([], DATA.top, 0));
+    treeEl.append(ul);
+  };
+  const markTree = () => {
+    const key = current.join("/");
+    for (const n of nodes) {
+      if (n.key === key) {
+        n.btn.setAttribute("aria-current", "true");
+        for (let li = n.li.parentElement.closest("li"); li; li = li.parentElement.closest("li")) {
+          li.classList.remove("collapsed");
+          const tw = li.querySelector(":scope > .row > .tw"); if (tw) tw.textContent = "▼";
+        }
+        n.btn.scrollIntoView({ block: "nearest" });
+      } else n.btn.removeAttribute("aria-current");
+    }
+  };
+  $("filter").addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    for (const n of nodes) n.li.classList.toggle("hidden", !!q);
+    if (!q) return;
+    for (const n of nodes) {
+      if (!n.text.includes(q)) continue;
+      for (let li = n.li; li; li = li.parentElement.closest("li")) {
+        li.classList.remove("hidden");
+        if (li !== n.li) li.classList.remove("collapsed");
+      }
+    }
+  });
+
+  // ---- buttons & keys ----------------------------------------------------------
+  const up = () => { if (current.length) go(current.slice(0, -1)); };
+  $("btn-up").onclick = up;
+  $("btn-fit").onclick = fit;
+  $("btn-svg").onclick = () => {
+    const mod = mods[moduleOf(current)];
+    const blob = new Blob([mod.svg], { type: "image/svg+xml" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = (current.length ? current.join(".") : DATA.top).replace(/[^\w.-]+/g, "_") + ".svg";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  window.addEventListener("keydown", (e) => {
+    if (e.target.matches && e.target.matches("input")) return;
+    if (e.key === "f" || e.key === "F") fit();
+    else if (e.key === "Backspace" || e.key === "u") { e.preventDefault(); up(); }
+  });
+
+  window.addEventListener("hashchange", () => show(pathFromHash()));
+  buildTree();
+  show(pathFromHash());
+})();
+</script>
+</body>
+</html>

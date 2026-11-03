@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
+import shutil
 import tempfile
 from pathlib import Path
 
 from . import __version__, log
 from .filelist import collect_sources
+from .html import build_viewer
 from .log import VeriViewError
 from .render import open_path, render
 from .synth import FRONTENDS, TOP_RE, Synthesizer
@@ -26,6 +29,7 @@ examples:
   veriview counter.sv
   veriview design.f -t cpu_core -o build/cpu.svg
   veriview rtl/*.sv -I rtl/include -D SYNTH --flatten --open
+  veriview design.f -t cpu_core --html --open      # interactive hierarchy viewer
 """
 
 
@@ -39,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("inputs", nargs="*", metavar="input",
                    help=".v/.sv/.svh files and/or .f file lists (a trailing non-file word is the top module)")
     p.add_argument("-t", "--top", help="top module (default: auto-detected)")
-    p.add_argument("-o", "--output", help="output SVG path (with --split: output directory)")
+    p.add_argument("-o", "--output", help="output path (.svg, or .html with --html; with --split: a directory)")
     p.add_argument("-f", "-F", dest="filelists", action="append", default=[], metavar="FILE.f",
                    help="read a file list (repeatable)")
     p.add_argument("-I", "--incdir", dest="incdirs", action="append", default=[], metavar="DIR",
@@ -48,6 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="preprocessor define (repeatable)")
     p.add_argument("--flatten", action="store_true", help="flatten hierarchy (expand sub-modules)")
     p.add_argument("--split", action="store_true", help="render every module to its own SVG")
+    p.add_argument("--html", action="store_true",
+                   help="write an interactive HTML viewer: click sub-modules to navigate the hierarchy")
     p.add_argument("--frontend", choices=FRONTENDS, default="auto",
                    help="SystemVerilog frontend (default: auto = yosys, falling back to slang/sv2v)")
     p.add_argument("--skin", type=Path, help="custom netlistsvg skin")
@@ -75,14 +81,14 @@ def _split_positionals(args: argparse.Namespace, parser: argparse.ArgumentParser
     return inputs + args.filelists
 
 
-def _output_path(args: argparse.Namespace, inputs: list[str]) -> Path:
+def _output_path(args: argparse.Namespace, inputs: list[str], suffix: str) -> Path:
     stem = args.top or Path(inputs[0]).stem
     if args.output:
         out = Path(args.output)
         if args.output.endswith(("/", "\\")) or out.is_dir():
-            return out / f"{stem}.svg"
+            return out / f"{stem}{suffix}"
         return out
-    return Path(f"{stem}.svg")
+    return Path(f"{stem}{suffix}")
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -95,6 +101,8 @@ def run(argv: list[str] | None = None) -> int:
         raise VeriViewError(f"Invalid top module name: '{args.top}'")
     if args.skin and not args.skin.is_file():
         raise VeriViewError(f"Skin file not found: {args.skin}")
+    if args.html and args.split:
+        raise VeriViewError("--html and --split cannot be combined (the HTML viewer already contains every module).")
 
     ensure_dependencies(install=args.install_deps, assume_yes=args.yes,
                         want_sv2v=args.install_deps or args.frontend == "sv2v")
@@ -130,10 +138,21 @@ def run(argv: list[str] | None = None) -> int:
                 open_path(out_dir)
             return status
 
-        svg = _output_path(args, inputs)
         json_path = work / "netlist.json"
         log.info("Running synthesis...")
         synth.synthesize(args.top, json_path)
+
+        if args.html:
+            out = _output_path(args, inputs, ".html")
+            netlist = json.loads(json_path.read_text(encoding="utf-8"))
+            build_viewer(netlist, out, work, skin=args.skin)
+            if args.keep_json:
+                shutil.copyfile(json_path, out.with_suffix(".json"))
+            if args.open:
+                open_path(out)
+            return 0
+
+        svg = _output_path(args, inputs, ".svg")
         log.info(f"Generating schematic -> {svg}")
         render(json_path, svg, **render_opts)
         if args.open:

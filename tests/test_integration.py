@@ -84,6 +84,39 @@ def test_split(tmp_path):
         assert is_svg(tmp_path / "split" / f"{m}.svg")
 
 
+def _viewer_data(html: Path) -> dict:
+    import re
+    text = html.read_text()
+    assert "</script>" in text and text.count("</script>") == 1
+    return json.loads(re.search(r"const DATA = (.*?);\n", text).group(1))
+
+
+def test_html_viewer(tmp_path):
+    out = tmp_path / "rca.html"
+    assert vv(EX / "rca" / "rca.f", "--html", "-o", out) == 0
+    data = _viewer_data(out)
+    assert data["top"] == "rca"
+    mods = data["modules"]
+    assert set(mods) == {"rca", "fa", "ha"}
+    assert len(mods["rca"]["children"]) == 8
+    assert set(mods["fa"]["children"].values()) == {"ha"}
+    # every navigable instance must exist as a clickable cell in the SVG
+    for inst in mods["rca"]["children"]:
+        assert f'id="cell_{inst}"' in mods["rca"]["svg"]
+
+
+def test_html_viewer_parameter_labels(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert vv(EX / "gray" / "gray.f", "--html") == 0
+    labels = {m["label"] for m in _viewer_data(tmp_path / "gray.html")["modules"].values()}
+    assert labels == {"b2g2b", "b2g (WIDTH=3)", "g2b (WIDTH=3)"}
+
+
+def test_html_split_conflict(tmp_path, capsys):
+    assert vv(EX / "counter.sv", "--html", "--split") == 1
+    assert "cannot be combined" in capsys.readouterr().err
+
+
 def test_background_options(tmp_path):
     assert vv(EX / "counter.sv", "-o", tmp_path / "bg.svg", "--bg", "#123456") == 0
     assert 'fill="#123456"' in (tmp_path / "bg.svg").read_text()

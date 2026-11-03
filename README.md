@@ -12,6 +12,7 @@ It wraps **Yosys** and **netlistsvg** (plus, optionally, **sv2v** or **yosys-sla
 - **Full SystemVerilog via fallback frontends** – if Yosys' built-in parser can't handle a construct (e.g. unpacked array ports), VeriView automatically retries with [yosys-slang](https://github.com/povik/yosys-slang) or [sv2v](https://github.com/zachjs/sv2v).
 - **File lists (`.f`)** – `+incdir+`, `+define+`, nested `-f`/`-F`, `-v`, `$VAR`/`${VAR}`/`$(VAR)` and comments.
 - **Include dirs & defines** – `-I` and `-D` on the command line.
+- **Interactive HTML viewer** – `--html` writes a single self-contained page: click a sub-module to open it, navigate with a hierarchy tree and breadcrumbs, zoom and pan, light/dark theme.
 - **Hierarchy control** – keep sub-modules as boxes or `--flatten` them; `--split` renders one SVG per module.
 - **Dark-mode friendly** – injects a background (`--bg white` by default, `--bg none` to disable).
 - **Open the result** – `--open` uses `xdg-open`, macOS `open`, or Windows Explorer on WSL.
@@ -38,8 +39,11 @@ sv2v is installed without sudo to `~/.local/bin` (Windows: `%LOCALAPPDATA%\veriv
 
 ## Installation
 
+VeriView is a command-line tool, so install it in its own isolated environment with [uv](https://docs.astral.sh/uv/) or [pipx](https://pipx.pypa.io/):
+
 ```bash
-pip install git+https://github.com/recepyazar/veriview.git
+uv tool install git+https://github.com/recepyazar/veriview.git
+# or: pipx install git+https://github.com/recepyazar/veriview.git
 veriview --install-deps
 ```
 
@@ -48,8 +52,10 @@ Or from a clone:
 ```bash
 git clone https://github.com/recepyazar/veriview.git
 cd veriview
-pip install .
+uv tool install .            # or: pipx install .
 ```
+
+Both put the `veriview` command in `~/.local/bin`. Plain `pip install` also works inside a virtual environment; on Debian/Ubuntu, `pip install` into the system Python fails with `externally-managed-environment` ([PEP 668](https://peps.python.org/pep-0668/)), which is expected.
 
 `./veriview.sh` still works from a clone without installing (it runs the Python package from `src/`).
 
@@ -70,6 +76,7 @@ veriview [options] <input>... [top_module]
 | `-D`, `--define <N[=V]>` | Add a preprocessor define (repeatable). |
 | `--flatten` | Flatten the hierarchy (expand sub-modules). |
 | `--split` | Render every module into its own SVG. |
+| `--html` | Write an interactive HTML viewer instead of an SVG (default output: `<top>.html`). |
 | `--frontend <name>` | `auto` (default), `yosys`, `sv2v` or `slang`. |
 | `--skin <file.svg>` | Custom [netlistsvg skin](https://github.com/nturley/netlistsvg#skins). |
 | `--bg <color\|none>` | Background color (default `white`). |
@@ -85,6 +92,22 @@ veriview [options] <input>... [top_module]
 > **5.0:** VeriView is now a Python package (`veriview` command). Options are unchanged; `veriview.sh` remains as a wrapper. Invalid command-line arguments now exit with code 2.
 
 If `-o` is not given, the output is `<top_module>.svg` (when a top is given) or `<first_input_name>.svg` in the current directory.
+
+### Interactive HTML viewer
+
+```bash
+veriview ex_design/rca/rca.f --html --open
+```
+
+<img src="./docs/viewer.png" alt="VeriView HTML viewer" width="800"/>
+
+The output is one HTML file with every module of the design embedded (no internet connection or server needed), so it can be shared or attached as-is.
+
+- **Click** a highlighted sub-module box (or a node in the tree) to open it; **breadcrumbs** and **↑ Up** / `Backspace` go back up.
+- **Mouse wheel** zooms around the cursor, **drag** pans, **Fit** / `F` fits the schematic to the window.
+- The current position is kept in the URL (`rca.html#/fa_block[3].fa_inst`), so the browser's back button works and links point to a specific instance.
+- Parameterized modules are shown with their parameters, e.g. `b2g (WIDTH=3)`.
+- **SVG** downloads the schematic that is currently shown.
 
 ### SystemVerilog frontends
 
@@ -220,6 +243,7 @@ Code layout (`src/veriview/`):
 | `filelist.py` | source collection and `.f` parsing |
 | `synth.py` | Yosys scripts, frontend fallback (yosys → slang → sv2v) |
 | `render.py` | netlistsvg, SVG post-processing, `--open` |
+| `html.py`, `viewer.html` | interactive HTML viewer (`--html`) |
 | `tools.py` | finding/installing yosys, netlistsvg, sv2v |
 
 CI runs lint and tests on Python 3.9 and 3.13 for every push and pull request.

@@ -126,3 +126,28 @@ def test_cli_argparse_errors(argv):
     with pytest.raises(SystemExit) as e:
         run(argv)
     assert e.value.code == 2
+
+
+# --- HTML viewer helpers ------------------------------------------------------
+
+def test_decode_param():
+    from veriview.html import decode_param
+    assert decode_param("s32'00000000000000000000000000000011") == "3"
+    assert decode_param("s4'1111") == "-1"
+    assert decode_param("4'1111") == "15"
+    assert decode_param("8'1x00zz11") == "8'1x00zz11"
+
+
+def test_display_name():
+    from veriview.html import display_name
+    assert display_name("fa") == "fa"
+    assert display_name("$paramod\\b2g\\WIDTH=s32'00000000000000000000000000000011") == "b2g (WIDTH=3)"
+    two = "$paramod\\mux\\A=s32'" + "0" * 29 + "100\\B=s32'" + "0" * 30 + "10"
+    assert display_name(two) == "mux (A=4, B=2)"
+    assert display_name("$paramod$0123abcd\\very_long", {"hdlname": "very_long"}) == "very_long"
+
+
+def test_find_top():
+    from veriview.html import find_top
+    assert find_top({"a": {}, "b": {"attributes": {"top": "00000000000000000000000000000001"}}}) == "b"
+    assert find_top({"a": {}, "b": {"attributes": {"top": 0}}}) == "a"

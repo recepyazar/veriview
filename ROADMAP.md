@@ -13,9 +13,9 @@ Goal: anyone can run `pipx install veriview` / `uv tool install veriview` / `pip
 - [x] `twine check --strict` passes; the wheel installs and runs in a clean virtualenv
 - [x] `CHANGELOG.md`
 - [x] `.github/workflows/publish.yml`: Trusted Publishing (no API tokens), version/tag check, TestPyPI on manual run, PyPI on GitHub release
-- [x] The name `veriview` is still free on PyPI (checked 2026-11-03)
+- [x] **Released: [veriview 5.6.0 on PyPI](https://pypi.org/project/veriview/) (2026-11-03)** — TestPyPI dry run, then GitHub release `v5.6.0`
 
-**One-time setup (needs the maintainer's accounts)**
+**One-time setup (needs the maintainer's accounts)** — done
 
 1. Create accounts on <https://pypi.org> and <https://test.pypi.org> and enable 2FA (required).
 2. Register the GitHub workflow as a *pending trusted publisher* on **both** sites
@@ -48,7 +48,7 @@ Goal: anyone can run `pipx install veriview` / `uv tool install veriview` / `pip
 
 **After the first release**
 
-- [ ] Add a PyPI version badge to the README; mention `pipx install veriview` first in *Installation*.
+- [x] Add a PyPI version badge to the README; mention `pipx install veriview` first in *Installation*.
 - [ ] Optional: `conda-forge` recipe (conda users often already have Yosys from `litex-hub`).
 
 ## 2. Near term (polish)

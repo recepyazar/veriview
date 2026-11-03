@@ -1,5 +1,7 @@
 # VeriView
 
+[![PyPI](https://img.shields.io/pypi/v/veriview)](https://pypi.org/project/veriview/)
+[![Python](https://img.shields.io/pypi/pyversions/veriview)](https://pypi.org/project/veriview/)
 [![CI](https://github.com/recepyazar/veriview/actions/workflows/ci.yml/badge.svg)](https://github.com/recepyazar/veriview/actions/workflows/ci.yml)
 
 **VeriView** turns Verilog and SystemVerilog designs into SVG schematics from the command line.
@@ -43,12 +45,19 @@ sv2v is installed without sudo to `~/.local/bin` (Windows: `%LOCALAPPDATA%\veriv
 
 ## Installation
 
-VeriView is a command-line tool, so install it in its own isolated environment with [uv](https://docs.astral.sh/uv/) or [pipx](https://pipx.pypa.io/):
+VeriView is on [PyPI](https://pypi.org/project/veriview/). It is a command-line tool, so install it in its own isolated environment with [pipx](https://pipx.pypa.io/) or [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install git+https://github.com/recepyazar/veriview.git
-# or: pipx install git+https://github.com/recepyazar/veriview.git
-veriview --install-deps
+pipx install veriview          # or: uv tool install veriview
+veriview --install-deps        # Yosys, Node.js + netlistsvg, sv2v
+```
+
+Upgrade later with `pipx upgrade veriview` (or `uv tool upgrade veriview`).
+
+The latest development version from GitHub:
+
+```bash
+pipx install git+https://github.com/recepyazar/veriview.git
 ```
 
 Or from a clone:

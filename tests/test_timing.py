@@ -97,7 +97,8 @@ def test_cli_timing_report_violations(tmp_path, capsys):
     wns = int(re.search(r"Setup +WNS (-?\d+) ps", out).group(1))
     nviol = int(re.search(r"Setup .*?(\d+) violation", out).group(1))
     assert wns < -300 and nviol > 5
-    assert re.search(r"Critical \(setup\) path to prod_r\[\d\] \(D\)", out)
+    # which register ends the critical path depends on how ABC maps the multiplier/adder
+    assert re.search(r"Critical \(setup\) path to (prod_r|acc)\[\d+\] \(D\)", out)
     # input -> register paths: 100 ps input delay - 30 ps hold - 200 ps uncertainty
     assert "worst -130 ps" in out and re.search(r"Hold .*?[1-9]\d* violation", out)
     assert "required (hold + uncertainty)" in out

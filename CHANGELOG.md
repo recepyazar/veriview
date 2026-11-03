@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.7.0
+
+- **Gate-level timing analysis**: static timing with per-gate delays (generic illustrative library), setup and hold checks, clock period / input delay / output delay / clock uncertainty, critical path, fmax, WNS/TNS and area.
+  - Viewer: **⏱ Timing** mode — gates coloured by slack with delay labels, endpoint table, click to highlight and zoom to setup/hold paths.
+  - CLI: `--timing <period>` prints an STA-style report (`--input-delay`, `--output-delay`, `--uncertainty`).
+- **Source code panel** in the viewer (**</> Code**): click a cell to see its source line, click a line to see its cells (across the hierarchy); sources are embedded in the HTML.
+- New example `pipe_mac.sv` (pipelined multiply-accumulate).
+- Viewer keeps the zoom level when the window is resized.
+
 ## 5.6.0 — first PyPI release
 
 - **Simulation mode** in the HTML viewer: toggle inputs, clock the design, watch 1-valued wires light up, also inside sub-modules; works on the RTL, optimized and gate views. Inputs that drive register resets start inactive, and registers held in reset are reported.

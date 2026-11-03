@@ -24,6 +24,8 @@ from .scope import TOP_ATTR, find_top, postprocess, reroot, user_children
 TEMPLATE = Path(__file__).with_name("viewer.html")
 SIM_JS = Path(__file__).with_name("sim.js")
 SIM_PLACEHOLDER = "/*__VERIVIEW_SIM__*/"
+TIMING_JS = Path(__file__).with_name("timing.js")
+TIMING_PLACEHOLDER = "/*__VERIVIEW_TIMING__*/"
 DATA_PLACEHOLDER = "/*__VERIVIEW_DATA__*/null"
 TITLE_PLACEHOLDER = "__VERIVIEW_TITLE__"
 
@@ -73,7 +75,76 @@ def slim_netlist(mod: dict[str, Any]) -> dict[str, Any]:
     ports = {name: [p.get("direction", ""), p.get("bits", [])] for name, p in mod.get("ports", {}).items()}
     names = {n: v["bits"] for n, v in mod.get("netnames", {}).items()
              if not v.get("hide_name") and not n.startswith("$")}
-    return {"cells": cells, "ports": ports, "names": names}
+    return {"cells": cells, "ports": ports, "names": names, **source_locations(mod)}
+
+
+def source_locations(mod: dict[str, Any]) -> dict[str, Any]:
+    """Source locations ("file:line.col-line.col", '|'-separated) of cells and nets.
+
+    Gates produced by technology mapping (abc) carry no location; they inherit the
+    location of the net they drive (public names preferred), which in practice points
+    at the RTL line the logic came from.
+    """
+    bit_src: dict[int, str] = {}
+    nsrc: dict[str, str] = {}
+    for n, v in sorted(mod.get("netnames", {}).items(), key=lambda kv: (kv[1].get("hide_name", 0), len(kv[0]))):
+        src = v.get("attributes", {}).get("src")
+        if not src:
+            continue
+        if not v.get("hide_name") and not n.startswith("$"):
+            nsrc[n] = src
+        for b in v.get("bits", []):
+            if isinstance(b, int):
+                bit_src.setdefault(b, src)
+    csrc: dict[str, str] = {}
+    for name, cell in mod.get("cells", {}).items():
+        src = cell.get("attributes", {}).get("src")
+        if not src:
+            dirs = cell.get("port_directions", {})
+            for p, bits in cell.get("connections", {}).items():
+                if dirs.get(p) == "output":
+                    src = next((bit_src[b] for b in bits if isinstance(b, int) and b in bit_src), None)
+                    if src:
+                        break
+        if src:
+            csrc[name] = src
+    return {"src": csrc, "nsrc": nsrc}
+
+
+MAX_SOURCE_BYTES = 2_000_000
+
+
+def collect_sources(stage_netlists: dict[str, dict[str, Any]], search_dirs: list[Path]) -> dict[str, dict[str, Any]]:
+    """Read every source file referenced by a src attribute: {path-as-in-src: {text, note}}."""
+    paths: set[str] = set()
+
+    def add(src: str | None) -> None:
+        for part in (src or "").split("|"):
+            if ":" in part:
+                paths.add(part.rsplit(":", 1)[0])
+
+    for net in stage_netlists.values():
+        for mod in net["modules"].values():
+            add(mod.get("attributes", {}).get("src"))
+            for c in mod.get("cells", {}).values():
+                add(c.get("attributes", {}).get("src"))
+            for v in mod.get("netnames", {}).values():
+                add(v.get("attributes", {}).get("src"))
+    out: dict[str, dict[str, Any]] = {}
+    total = 0
+    for path in sorted(paths):
+        for base in search_dirs:
+            f = Path(path) if Path(path).is_absolute() else base / path
+            if f.is_file():
+                text = f.read_text(encoding="utf-8", errors="replace")
+                if total + len(text) > MAX_SOURCE_BYTES:
+                    log.warn(f"Source not embedded in the viewer (size limit): {path}")
+                    break
+                total += len(text)
+                note = "converted to Verilog by sv2v" if path.endswith(".sv2v.v") else ""
+                out[path] = {"text": text, "note": note}
+                break
+    return out
 
 
 def _single_module(netlist: dict[str, Any], name: str, mod: dict[str, Any]) -> dict[str, Any]:
@@ -141,6 +212,7 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
         "stages": stages,
         "defaultStage": default_stage if default_stage in views else stages[0],
         "defaultFlat": default_flat,
+        "sources": collect_sources(stage_netlists, [Path.cwd(), work_dir]),
         "views": views,
     }
     # '<' only occurs inside JSON strings, so escaping it keeps </script> and
@@ -150,6 +222,7 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
     top_label = first["modules"][first["top"]]["label"]
     page = page.replace(TITLE_PLACEHOLDER, _html_escape(title or top_label))
     page = page.replace(SIM_PLACEHOLDER, SIM_JS.read_text(encoding="utf-8").replace("</", "<\\/"), 1)
+    page = page.replace(TIMING_PLACEHOLDER, TIMING_JS.read_text(encoding="utf-8").replace("</", "<\\/"), 1)
     page = page.replace(DATA_PLACEHOLDER, payload)
     out_html.parent.mkdir(parents=True, exist_ok=True)
     out_html.write_text(page, encoding="utf-8")

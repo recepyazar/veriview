@@ -25,8 +25,8 @@
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
-    display: grid; grid-template-rows: auto auto 1fr auto auto; grid-template-columns: 280px 1fr;
-    grid-template-areas: "head head" "side bar" "side main" "side wave" "side foot";
+    display: grid; grid-template-rows: auto auto 1fr auto auto; grid-template-columns: 280px minmax(0, 1fr) auto;
+    grid-template-areas: "head head head" "side bar code" "side main code" "side wave code" "side foot code";
     background: var(--bg); color: var(--text);
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
@@ -104,6 +104,10 @@
   #canvas svg.vv-cone line[class*="net_"]:not(.vv-hl):not(.vv-part):not(.vv-hit),
   #canvas svg.vv-cone circle[class*="net_"]:not(.vv-hl),
   #canvas svg.vv-cone g[id^="cell_"]:not(.vv-hl) { opacity: 0.15; }
+  /* timing: slack colouring (before the highlight rules so a highlighted path wins) */
+  #canvas svg g.vv-t-bad > :not(text) { stroke: #d92d20 !important; stroke-width: 2.5px !important; }
+  #canvas svg g.vv-t-warn > :not(text) { stroke: #f79009 !important; stroke-width: 2px !important; }
+  #canvas svg text.vv-t-delay { font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #6b7280; stroke: none; }
   #canvas svg line.vv-hl { stroke: var(--cone) !important; stroke-width: 2.5px !important; }
   #canvas svg line.vv-part { stroke: var(--cone) !important; stroke-dasharray: 5 4; }
   #canvas svg circle.vv-hl { fill: var(--cone) !important; stroke: var(--cone) !important; }
@@ -131,14 +135,55 @@
   #sim-table input[type="text"] { width: 90px; font: inherit; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
   #sim-cycle { color: var(--muted); font-size: 13px; }
   [hidden] { display: none !important; }
+  /* source code panel */
+  #code { grid-area: code; position: relative; width: 42vw; min-width: 240px; display: flex; flex-direction: column;
+    min-height: 0; background: var(--panel); border-left: 1px solid var(--border); }
+  #code-grip { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 2; }
+  #code .code-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  #code .code-head select { max-width: 50%; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+  #code .note, #code-msg { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #code-msg { flex: 1; text-align: right; }
+  #code-body { flex: 1; overflow: auto; font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 4px 0; }
+  #code-body .ln { display: flex; white-space: pre; cursor: pointer; padding-right: 12px; }
+  #code-body .ln:hover { background: var(--accent-soft); }
+  #code-body .ln.hl { background: rgba(232, 89, 12, 0.18); box-shadow: inset 3px 0 0 var(--cone); }
+  #code-body .ln.def { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  #code-body .no { flex: none; width: 3.5em; padding-right: 10px; text-align: right; color: var(--muted); user-select: none; }
+  #code-body .k { color: #7c3aed; font-weight: 600; }
+  #code-body .c { color: #6b7280; font-style: italic; }
+  #code-body .s { color: #b45309; }
+  #code-body .n { color: #0e7490; }
+  #code-body .d { color: #be185d; }
+  :root[data-theme="dark"] #code-body .k { color: #c4b5fd; }
+  :root[data-theme="dark"] #code-body .n { color: #67e8f9; }
+  :root[data-theme="dark"] #code-body .s { color: #fcd34d; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) #code-body .k { color: #c4b5fd; }
+    :root:not([data-theme="light"]) #code-body .n { color: #67e8f9; }
+    :root:not([data-theme="light"]) #code-body .s { color: #fcd34d; }
+  }
+  @media (max-width: 760px) { #code { width: auto !important; max-height: 40vh; border-left: 0; border-top: 1px solid var(--border); } #code-grip { display: none; } }
   /* waveform */
-  #wave { grid-area: wave; margin: 0 12px 10px; border: 1px solid var(--border); border-radius: 8px;
+  #wave, #timing { grid-area: wave; margin: 0 12px 10px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--panel); display: flex; flex-direction: column; height: 240px; min-height: 120px; resize: vertical; overflow: hidden; }
-  #wave .wave-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
-  #wave .wave-head b { font-weight: 600; }
-  #wave .wave-head .note { color: var(--muted); }
-  #wave .wave-head input, #wave .wave-head select { padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
-  #wave-body { overflow: auto; flex: 1; }
+  #wave .wave-head, #timing .wave-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  #wave .wave-head b, #timing .wave-head b { font-weight: 600; }
+  #wave .wave-head .note, #timing .wave-head .note { color: var(--muted); }
+  #wave .wave-head input, #wave .wave-head select, #timing .wave-head input { padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+  #wave-body, #t-body { overflow: auto; flex: 1; }
+  #timing .wave-head input { width: 72px; }
+  #t-summary { padding: 4px 10px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  #t-table { width: 100%; border-collapse: collapse; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #t-table th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--muted); padding: 2px 8px; border-bottom: 1px solid var(--border); }
+  #t-table td { padding: 1px 8px; white-space: nowrap; }
+  #t-table tbody tr { cursor: pointer; }
+  #t-table tbody tr:hover { background: var(--accent-soft); }
+  #t-table tbody tr.sel { background: var(--accent-soft); outline: 1px solid var(--accent); }
+  #t-table td.muted { color: var(--muted); }
+  .t-bad { color: #d92d20; font-weight: 600; }
+  .t-ok { color: var(--sim1); }
+  .t-msg { padding: 8px 12px; margin: 0; color: var(--muted); }
+  .btn.small { padding: 0 6px; font-size: 11px; margin-right: 4px; }
   svg.wave { display: block; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
   /* netlistsvg's skin <style> is global; keep it from styling the waveform */
   svg.wave rect, svg.wave text { stroke: none !important; }
@@ -159,8 +204,8 @@
   .hint { position: absolute; right: 24px; bottom: 20px; color: var(--muted); font-size: 12px; pointer-events: none; }
   @media (max-width: 760px) {
     body {
-      grid-template-columns: 1fr; grid-template-rows: auto auto auto 1fr auto auto;
-      grid-template-areas: "head" "side" "bar" "main" "wave" "foot";
+      grid-template-columns: 1fr; grid-template-rows: auto auto auto 1fr auto auto auto;
+      grid-template-areas: "head" "side" "bar" "main" "code" "wave" "foot";
     }
     aside { max-height: 26vh; border-right: 0; border-bottom: 1px solid var(--border); }
     header { flex-wrap: wrap; }
@@ -174,6 +219,7 @@
   <nav class="crumbs" id="crumbs" aria-label="Hierarchy path"></nav>
   <div class="tools">
     <button class="btn" id="btn-up" title="Go up one level (Backspace)">↑ Up</button>
+    <button class="btn" id="btn-code" aria-pressed="false" title="Show the source code: click a cell to see its line, click a line to see its cells">&lt;/&gt; Code</button>
     <button class="btn" id="btn-fit" title="Fit to window (F)">Fit</button>
     <button class="btn" id="btn-svg" title="Download this schematic as SVG">SVG</button>
     <button class="btn" id="btn-theme" title="Toggle light/dark theme">◐</button>
@@ -185,6 +231,7 @@
     <div class="seg" id="stages" role="group" aria-label="Stage"></div>
   </div>
   <button class="btn" id="btn-flat" aria-pressed="false" title="Flatten this module (expand all sub-modules)">Flatten</button>
+  <button class="btn" id="btn-timing" aria-pressed="false" title="Static timing analysis of the gate-level netlist: gate delays, setup/hold checks, critical path">⏱ Timing</button>
   <button class="btn" id="btn-sim" aria-pressed="false" title="Simulation mode: set inputs, clock the design and watch values propagate">▶ Simulate</button>
   <div class="group" id="sim-controls" hidden>
     <label for="sim-clk">Clock</label>
@@ -233,10 +280,32 @@
   </div>
   <div id="wave-body"></div>
 </section>
+<section id="timing" hidden aria-label="Timing">
+  <div class="wave-head">
+    <b>Timing</b>
+    <label>Clock period <input id="t-period" title="e.g. 2ns, 500ps, 250MHz"></label>
+    <label>Input delay <input id="t-in" title="arrival time of primary inputs after the clock edge"></label>
+    <label>Output delay <input id="t-out" title="time the outputs must be stable before the next edge"></label>
+    <label>Clock uncertainty <input id="t-unc" title="skew/jitter: tightens setup and hold checks"></label>
+    <span class="note">Generic gate library (illustrative values, not sign-off)</span>
+  </div>
+  <div id="t-summary"></div>
+  <div id="t-body"></div>
+</section>
+<section id="code" hidden aria-label="Source code">
+  <div id="code-grip" title="Drag to resize"></div>
+  <div class="code-head">
+    <select id="code-file" aria-label="Source file"></select>
+    <span id="code-note" class="note"></span>
+    <span id="code-msg"></span>
+  </div>
+  <div id="code-body"></div>
+</section>
 <footer id="status"></footer>
 
 <script>
 /*__VERIVIEW_SIM__*/
+/*__VERIVIEW_TIMING__*/
 </script>
 <script>
 const DATA = /*__VERIVIEW_DATA__*/null;
@@ -254,7 +323,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   };
 
   // ---- state & URL hash: #/inst/inst?stage=opt&flat=1 ---------------------
-  const state = { stage: DATA.defaultStage, flat: DATA.defaultFlat, sim: false, wave: false, path: [], cone: "", notice: "" };
+  const state = { stage: DATA.defaultStage, flat: DATA.defaultFlat, sim: false, wave: false, timing: false, code: false, path: [], cone: "", notice: "" };
   const view = () => DATA.views[state.stage];
   const mods = () => view().modules;
 
@@ -280,6 +349,8 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     if (params.has("flat")) state.flat = params.get("flat") === "1";
     state.sim = params.get("sim") === "1";
     state.wave = state.sim && params.get("wave") === "1";
+    state.timing = !state.sim && params.get("timing") === "1";
+    state.code = params.get("code") === "1";
     const path = p ? p.split("/").map(decodeURIComponent) : [];
     const valid = validPrefix(path);
     state.notice = valid.length < path.length
@@ -293,6 +364,8 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     if (s.flat) q.set("flat", "1");
     if (s.sim) q.set("sim", "1");
     if (s.sim && s.wave) q.set("wave", "1");
+    if (s.timing && !s.sim) q.set("timing", "1");
+    if (s.code) q.set("code", "1");
     location.hash = "/" + s.path.map(encodeURIComponent).join("/") + "?" + q.toString();
   };
 
@@ -346,7 +419,16 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     setVB();
   });
   window.addEventListener("pointerup", () => { drag = null; canvas.classList.remove("dragging"); });
-  new ResizeObserver(() => fit()).observe(canvas);
+  // on resize keep the current zoom and centre (fit only the first time)
+  let lastSize = null;
+  new ResizeObserver(() => {
+    const cw = canvas.clientWidth, ch = canvas.clientHeight, prev = lastSize;
+    lastSize = [cw, ch];
+    if (!svg || !vb || !prev || !prev[0] || !prev[1] || !cw || !ch) { fit(); return; }
+    const w = vb.w * cw / prev[0], h = vb.h * ch / prev[1];
+    vb = { x: vb.x + vb.w / 2 - w / 2, y: vb.y + vb.h / 2 - h / 2, w, h };
+    setVB();
+  }).observe(canvas);
 
   // ---- cone analysis on the slim netlist -----------------------------------------
   const isReg = (t) => /^\$_?((a|s|al)?dff|a?dlatch|ff|sr_|mem)/i.test(t);
@@ -398,23 +480,8 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     if (mode !== "out") cone(startBits, "in", res);
     if (mode !== "in") cone(startBits, "out", res);
     for (const c of startCells) res.cells.add(c);
-    svg.classList.add("vv-cone");
     // nets fully in the cone are highlighted; buses that only partly belong to it are dashed
-    for (const el of svg.querySelectorAll('line[class*="net_"]:not(.vv-hit), circle[class*="net_"]')) {
-      const bits = netBits(el);
-      if (!bits) continue;
-      const n = bits.filter((b) => res.bits.has(b)).length;
-      if (n === bits.length) el.classList.add("vv-hl");
-      else if (n) el.classList.add(el.tagName === "line" ? "vv-part" : "vv-hl");
-    }
-    for (const [p, [, pb]] of Object.entries(net.ports)) {
-      const nb = pb.filter((b) => typeof b === "number");
-      if (nb.length && nb.every((b) => res.bits.has(b))) res.ports.add(p);
-    }
-    for (const g of svg.querySelectorAll('g[id^="cell_"]')) {
-      const n = g.id.slice(5);
-      if (res.cells.has(n) || res.ports.has(n)) g.classList.add("vv-hl");
-    }
+    markSets(res);
     const kind = { in: "Fan-in cone", out: "Fan-out cone", both: "Fan-in + fan-out" }[mode];
     state.cone = `<b>${kind} of ${escapeHtml(label)}</b>: ${res.cells.size} cell(s), ${res.ports.size} port(s) · stops at registers · Esc to clear`;
     $("btn-clear").disabled = false;
@@ -425,6 +492,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     svg.classList.remove("vv-cone");
     for (const el of svg.querySelectorAll(".vv-hl, .vv-part")) el.classList.remove("vv-hl", "vv-part");
     state.cone = "";
+    tsel = null;
     $("btn-clear").disabled = true;
     if (render) renderStatus();
   };
@@ -758,9 +826,354 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   };
 
 
+  // ---- timing (engine: timing.js, inlined above) -----------------------------------
+  // timing settings are remembered per design (top module)
+  const TSTORE = "veriview-timing1:" + DATA.views[DATA.defaultStage].top;
+  const topt = { period: "2 ns", inputDelay: "100 ps", outputDelay: "0 ps", uncertainty: "0 ps" };
+  try { Object.assign(topt, JSON.parse(localStorage.getItem(TSTORE) || "{}")); } catch (e) {}
+  let tres = null, tsel = null;
+  const fmtT = (ps) => VVTiming.fmtTime(ps);
+  function runTiming() {
+    const vals = {};
+    for (const k of Object.keys(topt)) {
+      const v = VVTiming.parseTime(topt[k], k === "period" ? "ns" : "ps");
+      if (v === null || (k === "period" && v <= 0)) return { error: `Invalid value for ${k}: "${topt[k]}" (e.g. 2ns, 500ps, 250MHz)` };
+      vals[k] = v;
+    }
+    return VVTiming.analyzeTiming(net, vals);
+  }
+  function applyTiming() {
+    tsel = state.timing ? tsel : null;
+    if (state.stage !== "gate") { tres = null; renderTimingPanel(); return; }
+    tres = runTiming();
+    for (const t of svg.querySelectorAll("text.vv-t-delay, title.vv-t")) t.remove();
+    if (tres.error) { renderTimingPanel(); return; }
+    const warnAt = 0.1 * tres.period;
+    for (const g of svg.querySelectorAll('g[id^="cell_"]')) {
+      const n = g.id.slice(5);
+      g.classList.remove("vv-t-bad", "vv-t-warn", "vv-t-ok");
+      if (!tres.delay.has(n)) continue;
+      const s = tres.cellSlack.get(n), d = tres.delay.get(n), isFF = tres.kind.get(n) === "ff";
+      if (s !== undefined) g.classList.add(s < 0 ? "vv-t-bad" : s < warnAt ? "vv-t-warn" : "vv-t-ok");
+      const w = parseFloat(g.getAttribute("s:width")) || 30, h = parseFloat(g.getAttribute("s:height")) || 20;
+      const lbl = document.createElementNS(SVGNS, "text");
+      lbl.setAttribute("class", "vv-t-delay"); lbl.setAttribute("x", w / 2); lbl.setAttribute("y", h + 11);
+      lbl.setAttribute("text-anchor", "middle");
+      lbl.textContent = `${Math.round(d)}${isFF ? " clk→Q" : ""}`;
+      g.append(lbl);
+      const out = Object.values(net.cells[n][1]).filter(([dir]) => dir === "output").flatMap(([, b]) => b)[0];
+      const t = document.createElementNS(SVGNS, "title");
+      t.setAttribute("class", "vv-t");
+      t.textContent = `${n}\n${net.cells[n][0]}: ${isFF ? "clk→Q" : "delay"} ${fmtT(d)}` +
+        (tres.arrMax.has(out) ? `\noutput arrival ${fmtT(tres.arrMax.get(out))} (min ${fmtT(tres.arrMin.get(out))})` : "") +
+        (s !== undefined ? `\nslack ${fmtT(s)}` : "");
+      g.prepend(t);
+    }
+    for (const el of svg.querySelectorAll("line.vv-hit")) {
+      const bits = netBits(el);
+      if (!bits) continue;
+      const mx = Math.max(...bits.map((b) => tres.arrMax.get(b) ?? 0)), mn = Math.min(...bits.map((b) => tres.arrMin.get(b) ?? 0));
+      let t = el.querySelector("title");
+      if (!t) { t = document.createElementNS(SVGNS, "title"); el.append(t); }
+      t.textContent = `${nameOfBits(bits)}: arrival ${fmtT(mx)} (min ${fmtT(mn)})`;
+    }
+    renderTimingPanel();
+    if (tsel) {
+      const ep = tres.endpoints.find((e) => e.name === tsel.name);
+      if (ep) showPath(ep, tsel.mode); else tsel = null;
+    }
+  }
+  function markSets(res) {
+    svg.classList.add("vv-cone");
+    for (const el of svg.querySelectorAll('line[class*="net_"]:not(.vv-hit), circle[class*="net_"]')) {
+      const bits = netBits(el);
+      if (!bits) continue;
+      const n = bits.filter((b) => res.bits.has(b)).length;
+      if (n === bits.length) el.classList.add("vv-hl");
+      else if (n) el.classList.add(el.tagName === "line" ? "vv-part" : "vv-hl");
+    }
+    for (const [p, [, pb]] of Object.entries(net.ports)) {
+      const nb = pb.filter((b) => typeof b === "number");
+      if (nb.length && nb.every((b) => res.bits.has(b))) res.ports.add(p);
+    }
+    for (const g of svg.querySelectorAll('g[id^="cell_"]')) {
+      const n = g.id.slice(5);
+      if (res.cells.has(n) || res.ports.has(n)) g.classList.add("vv-hl");
+    }
+  }
+  // zoom the schematic to the highlighted elements
+  function zoomToHighlight() {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const inv = svg.getScreenCTM().inverse();
+    // cells only: nets of the path can have a large fanout and span the whole schematic
+    for (const el of svg.querySelectorAll("g.vv-hl")) {
+      const r = el.getBoundingClientRect();
+      if (!r.width && !r.height) continue;
+      for (const [cx, cy] of [[r.left, r.top], [r.right, r.bottom]]) {
+        const p = toSvg(cx, cy, inv);
+        x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y);
+      }
+    }
+    if (!isFinite(x0)) return;
+    const pad = 30, cw = canvas.clientWidth || 1, ch = canvas.clientHeight || 1;
+    const w0 = x1 - x0 + 2 * pad, h0 = y1 - y0 + 2 * pad;
+    const scale = Math.min(cw / w0, ch / h0, 3);
+    const w = cw / scale, h = ch / scale;
+    vb = { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - h / 2, w, h };
+    setVB();
+  }
+  function showPath(ep, mode, zoom = false) {
+    clearHighlight(false);
+    const steps = tres.path(ep, mode);
+    const res = { bits: new Set(), cells: new Set(), ports: new Set() };
+    for (const s of steps) {
+      if (typeof s.bit === "number") res.bits.add(s.bit);
+      if (s.kind === "cell" || s.kind === "launch") res.cells.add(s.name);
+      if (s.kind === "port") res.ports.add(s.name);
+    }
+    res.bits.add(ep.bit);
+    if (ep.cell) res.cells.add(ep.cell);
+    if (ep.port) res.ports.add(ep.port);
+    markSets(res);
+    if (zoom) zoomToHighlight();
+    tsel = { name: ep.name, mode };
+    const gates = steps.filter((s) => s.kind === "cell").length;
+    const slack = mode === "hold" ? ep.holdSlack : ep.slack;
+    const arr = mode === "hold" ? ep.minArrival : ep.arrival;
+    state.cone = `<b>${mode === "hold" ? "Shortest (hold) path" : "Longest (setup) path"} to ${escapeHtml(ep.name)}</b>: ` +
+      `${gates} gate${gates === 1 ? "" : "s"}, arrival ${fmtT(arr)}` +
+      (slack === null || slack === undefined ? "" : `, slack <span class="${slack < 0 ? "t-bad" : "t-ok"}">${fmtT(slack)}</span>`) + " · Esc to clear";
+    $("btn-clear").disabled = false;
+    renderStatus();
+    for (const tr of $("t-table").querySelectorAll("tr[data-ep]")) tr.classList.toggle("sel", tr.dataset.ep === ep.name);
+  }
+  function renderTimingPanel() {
+    const body = $("t-body"), sum = $("t-summary");
+    for (const [id, k] of [["t-period", "period"], ["t-in", "inputDelay"], ["t-out", "outputDelay"], ["t-unc", "uncertainty"]]) {
+      if (document.activeElement !== $(id)) $(id).value = topt[k];
+    }
+    if (!state.timing) return;
+    if (state.stage !== "gate") {
+      sum.textContent = "";
+      body.innerHTML = "";
+      const p = document.createElement("p"); p.className = "t-msg";
+      p.textContent = "Timing analysis runs on the gate-level netlist. ";
+      const b = document.createElement("button"); b.className = "btn"; b.textContent = "Switch to the Gates view";
+      b.onclick = () => go({ stage: "gate" });
+      p.append(b); body.append(p);
+      return;
+    }
+    if (!tres || tres.error) { sum.textContent = ""; body.innerHTML = `<p class="t-msg t-bad">${escapeHtml(tres ? tres.error : "")}</p>`; return; }
+    const r = tres, cls = (v) => (v < 0 ? "t-bad" : "t-ok");
+    const ncells = Object.values(r.counts).reduce((a, b) => a + b, 0);
+    const parts = [
+      `Area <b>${r.area.toFixed(1)} µm²</b> (${ncells} cells)`,
+      `Critical path <b>${fmtT(r.minPeriod)}</b>` + (r.fmaxMHz ? ` → fmax <b>${r.fmaxMHz >= 1000 ? (r.fmaxMHz / 1000).toFixed(2) + " GHz" : r.fmaxMHz.toFixed(0) + " MHz"}</b>` : ""),
+      `Setup WNS <b class="${cls(r.wns)}">${fmtT(r.wns)}</b>, TNS ${fmtT(r.tns)}, <span class="${r.setupViolations ? "t-bad" : ""}">${r.setupViolations} violation${r.setupViolations === 1 ? "" : "s"}</span>`,
+      r.worstHold === null ? "Hold: no registers"
+        : `Hold worst <b class="${cls(r.worstHold)}">${fmtT(r.worstHold)}</b>, <span class="${r.holdViolations ? "t-bad" : ""}">${r.holdViolations} violation${r.holdViolations === 1 ? "" : "s"}</span>`,
+    ];
+    if (r.unknown.length) parts.push(`<span class="t-bad">no timing for: ${escapeHtml(r.unknown.join(", "))}</span>`);
+    if (r.loopCells.length) parts.push(`<span class="t-bad">${r.loopCells.length} cells in combinational loops (not timed)</span>`);
+    sum.innerHTML = parts.join(" · ");
+    const rows = r.endpoints.slice(0, 300);
+    const tbl = document.createElement("table");
+    tbl.id = "t-table";
+    tbl.innerHTML = "<thead><tr><th>Endpoint</th><th>Type</th><th>Arrival</th><th>Required</th><th>Setup slack</th><th>Hold slack</th><th></th></tr></thead>";
+    const tb = document.createElement("tbody");
+    for (const ep of rows) {
+      const tr = document.createElement("tr");
+      tr.dataset.ep = ep.name;
+      const td = (html, c) => { const e = document.createElement("td"); if (c) e.className = c; e.innerHTML = html; tr.append(e); return e; };
+      td(escapeHtml(ep.name));
+      td(ep.kind === "ff" ? `register ${ep.pin}` : "output", "muted");
+      td(fmtT(ep.arrival)); td(fmtT(ep.required));
+      td(fmtT(ep.slack), cls(ep.slack));
+      td(ep.holdSlack === null ? "–" : fmtT(ep.holdSlack), ep.holdSlack === null ? "muted" : cls(ep.holdSlack));
+      const act = td("");
+      const mk = (label, mode, title) => { const b = document.createElement("button"); b.className = "btn small"; b.textContent = label; b.title = title; b.onclick = (ev) => { ev.stopPropagation(); showPath(ep, mode, true); }; act.append(b); };
+      mk("setup path", "setup", "Show the longest path to this endpoint");
+      if (ep.holdSlack !== null) mk("hold path", "hold", "Show the shortest path to this endpoint");
+      tr.onclick = () => showPath(ep, "setup", true);
+      tb.append(tr);
+    }
+    tbl.append(tb);
+    body.textContent = "";
+    if (!rows.length) body.innerHTML = '<p class="t-msg">No timing endpoints (no registers or outputs).</p>';
+    else body.append(tbl);
+    if (r.endpoints.length > rows.length) {
+      const p = document.createElement("p"); p.className = "t-msg"; p.textContent = `… ${r.endpoints.length - rows.length} more endpoints`; body.append(p);
+    }
+  }
+  for (const [id, k] of [["t-period", "period"], ["t-in", "inputDelay"], ["t-out", "outputDelay"], ["t-unc", "uncertainty"]]) {
+    $(id).addEventListener("change", (ev) => {
+      topt[k] = ev.target.value;
+      try { localStorage.setItem(TSTORE, JSON.stringify(topt)); } catch (e) {}
+      if (state.timing && svg) { applyTiming(); renderStatus(); }
+    });
+  }
+
+
+  // ---- source code panel: code <-> schematic ------------------------------------------
+  const SOURCES = DATA.sources || {};
+  const code = { file: null, rendered: null, sel: [], pending: null };
+  // "a.sv:12.3-14.8|b.sv:3.1-3.9" -> [{file, l1, l2}]
+  const parseSrc = (s) => String(s || "").split("|").map((p) => {
+    const i = p.lastIndexOf(":");
+    if (i < 0) return null;
+    const m = /^(\d+)(?:\.\d+)?(?:-(\d+)(?:\.\d+)?)?$/.exec(p.slice(i + 1));
+    return m ? { file: p.slice(0, i), l1: +m[1], l2: +(m[2] || m[1]) } : null;
+  }).filter((r) => r && SOURCES[r.file]);
+  const KW = new Set(("module endmodule input output inout wire reg logic bit integer int parameter localparam assign always " +
+    "always_ff always_comb always_latch initial begin end if else case casez casex endcase default for while repeat forever " +
+    "genvar generate endgenerate function endfunction task endtask posedge negedge or and not xor nand nor signed unsigned " +
+    "typedef enum struct union packed interface endinterface modport package endpackage import export return break continue " +
+    "unique priority automatic static const var string real time event supply0 supply1 tri wand wor").split(" "));
+  const esc = (t) => t.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  function highlightLine(line, st) {
+    let out = "", i = 0;
+    while (i < line.length) {
+      if (st.block) {
+        const e = line.indexOf("*/", i);
+        const j = e < 0 ? line.length : e + 2;
+        out += `<span class="c">${esc(line.slice(i, j))}</span>`; i = j;
+        if (e >= 0) st.block = false;
+        continue;
+      }
+      const rest = line.slice(i);
+      let m;
+      if (rest.startsWith("//")) { out += `<span class="c">${esc(rest)}</span>`; break; }
+      if (rest.startsWith("/*")) { st.block = true; continue; }
+      if ((m = /^"(?:[^"\\]|\\.)*"?/.exec(rest))) { out += `<span class="s">${esc(m[0])}</span>`; i += m[0].length; continue; }
+      if ((m = /^(?:\d*'s?[bodhBODH][0-9a-fA-FxXzZ_?]+|\d[\d_]*(?:\.\d+)?)/.exec(rest))) { out += `<span class="n">${esc(m[0])}</span>`; i += m[0].length; continue; }
+      if ((m = /^[`$][A-Za-z_]\w*/.exec(rest))) { out += `<span class="d">${esc(m[0])}</span>`; i += m[0].length; continue; }
+      if ((m = /^[A-Za-z_]\w*/.exec(rest))) { out += KW.has(m[0]) ? `<span class="k">${m[0]}</span>` : esc(m[0]); i += m[0].length; continue; }
+      out += esc(line[i]); i++;
+    }
+    return out;
+  }
+  function renderCode(file) {
+    if (code.rendered === file) return;
+    const src = SOURCES[file], body = $("code-body");
+    body.textContent = "";
+    code.file = code.rendered = file;
+    $("code-file").value = file;
+    $("code-note").textContent = src.note || "";
+    const st = { block: false }, frag = document.createDocumentFragment();
+    src.text.split("\n").forEach((line, i) => {
+      const d = document.createElement("div");
+      d.className = "ln"; d.dataset.line = i + 1;
+      d.innerHTML = `<span class="no">${i + 1}</span><span class="tx">${highlightLine(line, st) || " "}</span>`;
+      frag.append(d);
+    });
+    body.append(frag);
+  }
+  function markLines(ranges, cls = "hl", scroll = true) {
+    for (const el of $("code-body").querySelectorAll("." + cls)) el.classList.remove(cls);
+    const rs = ranges.filter((r) => SOURCES[r.file]);
+    if (!rs.length) return false;
+    renderCode(rs[0].file);
+    let first = null;
+    for (const r of rs) {
+      if (r.file !== code.file) continue;
+      for (let l = r.l1; l <= r.l2; l++) {
+        const el = $("code-body").children[l - 1];
+        if (el) { el.classList.add(cls); first = first || el; }
+      }
+    }
+    if (first && scroll) first.scrollIntoView({ block: "center" });
+    return !!first;
+  }
+  // schematic -> code
+  function codeShowCell(name) {
+    if (!state.code) return;
+    const ok = markLines(parseSrc(net.src && net.src[name]));
+    $("code-msg").textContent = ok ? `${name}` : `${name}: no source location`;
+  }
+  function codeShowNet(bits) {
+    if (!state.code) return;
+    const n = nameOfBits(bits);
+    const ok = markLines(parseSrc(net.nsrc && net.nsrc[n.replace(/\[\d+\]$/, "")]));
+    $("code-msg").textContent = ok ? `net ${n}` : `net ${n}: no source location`;
+  }
+  function codeShowModule(mod) {
+    if (!state.code) return;
+    const rs = parseSrc(mod.src);
+    for (const el of $("code-body").querySelectorAll(".hl")) el.classList.remove("hl");
+    if (rs.length) { markLines(rs.map((r) => ({ ...r, l2: r.l1 })), "def"); $("code-msg").textContent = `module ${mod.label}`; }
+    else if (!code.file && Object.keys(SOURCES).length) renderCode(Object.keys(SOURCES)[0]);
+  }
+  // code -> schematic
+  const inRange = (rs, file, line) => rs.some((r) => r.file === file && r.l1 <= line && line <= r.l2);
+  function codeLineClick(file, line) {
+    const res = { bits: new Set(), cells: new Set(), ports: new Set() };
+    for (const [c, s] of Object.entries(net.src || {})) {
+      if (!inRange(parseSrc(s), file, line)) continue;
+      res.cells.add(c);
+      for (const [dir, bits] of Object.values(net.cells[c][1])) if (dir === "output") bits.forEach((b) => typeof b === "number" && res.bits.add(b));
+    }
+    let nets = 0;
+    for (const [n, s] of Object.entries(net.nsrc || {})) {
+      if (!inRange(parseSrc(s), file, line) || !net.names[n]) continue;
+      nets++;
+      net.names[n].forEach((b) => typeof b === "number" && res.bits.add(b));
+    }
+    markLines([{ file, l1: line, l2: line }], "hl", false);
+    if (!res.cells.size && !nets) {
+      // the line may belong to another module: open the first instance of it
+      const target = Object.entries(mods()).find(([, m]) => inRange(parseSrc(m.src), file, line));
+      const here = moduleOf(state.path);
+      if (target && target[0] !== here) {
+        const path = findInstance(target[0]);
+        if (path) { code.pending = { file, line }; go({ path }); return; }
+      }
+      clearHighlight(false);
+      state.cone = `<b>${escapeHtml(file)}:${line}</b>: nothing from this line in the current view` +
+        (state.stage !== "elab" ? " (it may have been optimized away — try the RTL view)" : "");
+      $("btn-clear").disabled = false;
+      renderStatus();
+      return;
+    }
+    clearHighlight(false);
+    markSets(res);
+    state.cone = `<b>${escapeHtml(file)}:${line}</b>: ${res.cells.size} cell${res.cells.size === 1 ? "" : "s"}, ${nets} net${nets === 1 ? "" : "s"} · Esc to clear`;
+    $("btn-clear").disabled = false;
+    renderStatus();
+  }
+  // shortest instance path (from the current position, then from the top) to a module
+  function findInstance(target) {
+    for (const start of [state.path, []]) {
+      const queue = [[start, moduleOf(start)]];
+      while (queue.length) {
+        const [p, m] = queue.shift();
+        if (m === target) return p;
+        for (const [inst, child] of Object.entries(mods()[m].children)) queue.push([[...p, inst], child]);
+      }
+    }
+    return null;
+  }
+  $("code-file").addEventListener("change", (e) => { code.rendered = null; renderCode(e.target.value); });
+  $("code-body").addEventListener("click", (e) => {
+    const ln = e.target.closest && e.target.closest(".ln");
+    if (ln) codeLineClick(code.file, +ln.dataset.line);
+  });
+  for (const f of Object.keys(SOURCES)) {
+    const o = document.createElement("option"); o.value = f; o.textContent = f.split("/").pop(); o.title = f; $("code-file").append(o);
+  }
+  // drag the left edge of the panel to resize it
+  $("code-grip").addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    const startX = e.clientX, startW = $("code").getBoundingClientRect().width;
+    const move = (ev) => { $("code").style.width = Math.max(240, Math.min(window.innerWidth * 0.75, startW + startX - ev.clientX)) + "px"; };
+    const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); };
+    window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+  });
+
+
   // ---- rendering ---------------------------------------------------------------
   // flattened views are not simulated (simulation runs on the hierarchy)
-  const isFlat = (mod) => !!(state.flat && mod.flat && !state.sim);
+  // flattened views are not simulated (simulation runs on the hierarchy); timing always flattens
+  const isFlat = (mod) => !!((state.flat || state.timing) && mod.flat && !state.sim);
   const variant = (mod) => (isFlat(mod) ? mod.flat : mod.hier);
   const show = () => {
     const name = moduleOf(state.path), mod = mods()[name], v = variant(mod);
@@ -798,7 +1211,12 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       if (state.wave) openWave();
       applySim();
     }
+    if (state.timing) applyTiming();
     renderControls(mod); renderCrumbs(); renderTree(); renderStatus();
+    if (state.code) {
+      codeShowModule(mod);
+      if (code.pending) { const pnd = code.pending; code.pending = null; codeLineClick(pnd.file, pnd.line); }
+    }
     const inst = state.path.length ? state.path[state.path.length - 1] : name;
     document.title = `${inst} · ${mod.label} · VeriView`;
   };
@@ -825,6 +1243,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       `${v.cells} cell${v.cells === 1 ? "" : "s"}`,
       mod.src && `source: ${escapeHtml(mod.src)}`,
     ];
+    if (state.timing && !state.cone) parts.unshift("<b>Timing</b> · click a net or gate for its longest path, or an endpoint in the table");
     if (state.notice) parts.unshift(`<b>${escapeHtml(state.notice)}</b>`);
     statusEl.innerHTML = parts.filter(Boolean).join("  ·  ");
   };
@@ -833,27 +1252,59 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const f = $("btn-flat");
     f.disabled = !mod.flat;
     f.setAttribute("aria-pressed", String(isFlat(mod)));
+    f.title = mod.flat ? "Flatten this module (expand all sub-modules)" : "This module has no sub-modules";
     if (state.sim) { f.disabled = true; f.title = "Flatten is not available in simulation mode"; }
+    if (state.timing) { f.disabled = true; f.title = "Timing analysis always uses the flattened netlist"; }
+    $("timing").hidden = !state.timing;
+    $("code").hidden = !state.code;
+    $("btn-code").setAttribute("aria-pressed", String(state.code));
+    $("btn-code").disabled = !Object.keys(SOURCES).length;
+    $("btn-timing").setAttribute("aria-pressed", String(state.timing));
+    $("btn-timing").disabled = !DATA.views.gate;
+    if (!DATA.views.gate) $("btn-timing").title = "Timing needs the gate view (generate with --html-stages including gate)";
     $("btn-sim").setAttribute("aria-pressed", String(state.sim));
     $("sim-controls").hidden = !state.sim;
     $("sim-panel").hidden = !state.sim;
     $("wave").hidden = !(state.sim && state.wave);
     $("btn-wave").setAttribute("aria-pressed", String(state.wave));
     for (const id of ["sim-step", "sim-n", "sim-run", "sim-reset", "sim-cycle"]) $(id).hidden = state.wave;
-    for (const el of document.querySelectorAll(".cone-ui")) el.hidden = state.sim;
+    for (const el of document.querySelectorAll(".cone-ui")) el.hidden = state.sim || state.timing;
     $("hint").textContent = state.sim
       ? "Wheel: zoom · Drag: pan · Click an input port to toggle it · Hover a wire for its value"
+      : state.timing ? "Wheel: zoom · Drag: pan · Numbers under gates are delays [ps] · Hover for arrival times · Click a net for its longest path"
       : "Wheel: zoom · Drag: pan · Click a sub-module to open it · Click a net for its cone (Shift: fan-out)";
-    f.title = mod.flat ? "Flatten this module (expand all sub-modules)" : "This module has no sub-modules";
     $("btn-up").disabled = state.path.length === 0;
   };
 
   canvas.addEventListener("click", (e) => {
     if (moved || !svg) return;
     const t = e.target;
+    if (state.code) {
+      const gc = t.closest && t.closest('g[id^="cell_"]');
+      const lb = t.matches && t.matches("line, circle") ? netBits(t) : null;
+      if (gc && net.cells[gc.id.slice(5)]) codeShowCell(gc.id.slice(5));
+      else if (lb) codeShowNet(lb);
+    }
     const link = t.closest && t.closest("g.vv-link");
     if (link) { go({ path: [...state.path, link.id.slice(5)] }); return; }
     if (state.sim) { simClick(e); return; }
+    if (state.timing) {
+      if (!tres || tres.error) return;
+      let bit = null;
+      const lb = t.matches && t.matches("line, circle") ? netBits(t) : null;
+      if (lb) bit = lb.reduce((a, b) => ((tres.arrMax.get(b) ?? 0) > (tres.arrMax.get(a) ?? 0) ? b : a));
+      const g = !lb && t.closest && t.closest('g[id^="cell_"]');
+      if (g) {
+        const n = g.id.slice(5);
+        if (net.cells[n]) bit = Object.values(net.cells[n][1]).filter(([d]) => d === "output").flatMap(([, b]) => b)[0];
+        else if (net.ports[n]) bit = net.ports[n][1].find((b) => typeof b === "number");
+      }
+      if (typeof bit !== "number") { clearHighlight(); return; }
+      const ep = tres.endpoints.find((x) => x.bit === bit) ||
+        { bit, name: nameOfBits([bit]), arrival: tres.arrMax.get(bit) ?? 0, minArrival: tres.arrMin.get(bit) ?? 0 };
+      showPath(ep, "setup");
+      return;
+    }
     const mode = e.shiftKey ? "out" : $("cone-mode").value;
     const bits = t.matches && t.matches("line, circle") ? netBits(t) : null;
     if (bits) { highlight(bits, mode, nameOfBits(bits)); return; }
@@ -969,7 +1420,9 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   }
   if (DATA.stages.length < 2) $("stages").parentElement.style.display = "none";
   $("btn-flat").onclick = () => go({ flat: !state.flat });
-  $("btn-sim").onclick = () => go({ sim: !state.sim });
+  $("btn-sim").onclick = () => go({ sim: !state.sim, timing: false });
+  $("btn-timing").onclick = () => go({ timing: !state.timing, sim: false,
+    stage: !state.timing && DATA.views.gate ? "gate" : state.stage });
   $("btn-wave").onclick = () => go({ wave: !state.wave });
   $("sim-clk").addEventListener("change", () => {
     if (state.wave) { wave.top = null; openWave(); refreshSim(); }
@@ -981,6 +1434,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   const up = () => { if (state.path.length) go({ path: state.path.slice(0, -1) }); };
   $("btn-up").onclick = up;
   $("btn-fit").onclick = fit;
+  $("btn-code").onclick = () => go({ code: !state.code });
   $("btn-svg").onclick = () => {
     const mod = mods()[moduleOf(state.path)];
     const blob = new Blob([variant(mod).svg], { type: "image/svg+xml" });

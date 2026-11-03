@@ -214,3 +214,21 @@ def test_old_yosys_compat():
     # ... and stores hdlname with a leading backslash
     name = "$paramod\\b2g\\WIDTH=s32'00000000000000000000000000000011"
     assert display_name(name, {"hdlname": "\\b2g"}) == "b2g (WIDTH=3)"
+
+
+def test_source_locations_inherit_from_driven_net():
+    from veriview.html import source_locations
+    mod = {
+        "cells": {
+            "$abc$1": {"type": "$_AND_", "port_directions": {"A": "input", "B": "input", "Y": "output"},
+                       "connections": {"A": [2], "B": [3], "Y": [4]}},
+            "u": {"type": "$add", "attributes": {"src": "a.v:3.5-3.9"}, "connections": {}},
+        },
+        "netnames": {
+            "$auto$x": {"hide_name": 1, "bits": [4], "attributes": {"src": "a.v:9.1-9.2"}},
+            "y": {"hide_name": 0, "bits": [4], "attributes": {"src": "a.v:7.10-7.11"}},
+        },
+    }
+    loc = source_locations(mod)
+    assert loc["src"] == {"$abc$1": "a.v:7.10-7.11", "u": "a.v:3.5-3.9"}  # public net name preferred
+    assert loc["nsrc"] == {"y": "a.v:7.10-7.11"}

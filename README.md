@@ -15,6 +15,8 @@ It wraps **Yosys** and **netlistsvg** (plus, optionally, **sv2v** or **yosys-sla
 - **File lists (`.f`)** – `+incdir+`, `+define+`, nested `-f`/`-F`, `-v`, `$VAR`/`${VAR}`/`$(VAR)` and comments.
 - **Include dirs & defines** – `-I` and `-D` on the command line.
 - **Interactive HTML viewer** – `--html` writes a single self-contained page: click into sub-modules, switch between RTL / optimized / gate views, flatten any module, and click a net to highlight its fan-in or fan-out cone.
+- **Code ↔ schematic** – the viewer shows the RTL source next to the schematic: click a cell to see the line it came from, click a line to see its cells.
+- **Gate-level timing** – gate delays, setup/hold checks, critical path, fmax and area: in the viewer (**⏱ Timing**) or as a report (`--timing 2ns`).
 - **Simulation mode** – drive the inputs, clock the design and watch the 1-valued wires light up, right in the schematic (also inside sub-modules).
 - **Hierarchy control** – keep sub-modules as boxes or `--flatten` them; `--split` renders one SVG per module.
 - **Live mode** – `--watch` rebuilds on every save; with `--html` the viewer is served locally and the browser refreshes by itself.
@@ -94,6 +96,8 @@ veriview [options] <input>... [top_module]
 | `--cone <signal>` | Draw only the logic driving `signal`, stopping at registers (repeatable). |
 | `--split` | Render every module into its own SVG. |
 | `--html` | Write an interactive HTML viewer instead of an SVG (default output: `<top>.html`). |
+| `--timing <period>` | Print a gate-level static timing report (setup/hold, critical path, fmax, area), e.g. `--timing 2ns` or `--timing 250MHz`. |
+| `--input-delay`, `--output-delay`, `--uncertainty` | Timing constraints for `--timing` (defaults `100ps`, `0ps`, `0ps`). |
 | `--html-stages <list>` | Views embedded in the HTML viewer (default `elab,opt,gate`; `--stage` is shown first). |
 | `--frontend <name>` | `auto` (default), `yosys`, `sv2v` or `slang`. |
 | `--skin <file.svg>` | Custom [netlistsvg skin](https://github.com/nturley/netlistsvg#skins). |
@@ -131,6 +135,40 @@ The output is one HTML file with every module of the design embedded (no interne
 - The current position and view are kept in the URL (`rca.html#/fa_block[3].fa_inst?stage=gate&flat=1`), so the back button works and links point to a specific view.
 
 Rendering every view takes longer for big designs; use `--html-stages opt` to embed only one view.
+
+### Source code panel
+
+Press **</> Code** to show the source files next to the schematic:
+
+<img src="./docs/code.png" alt="VeriView source code panel" width="800"/>
+
+- **Cell → code:** click a cell (or a wire) and its source line is highlighted; opening a sub-module jumps to its `module` definition.
+- **Code → cell:** click a line and every cell and net created from it is highlighted. If the line belongs to a module that is not on screen, the viewer opens the first instance of that module.
+- Works in every view and mode (also while simulating or in timing mode). In the Gates view, gates inherit the location of the net they drive; with the sv2v frontend the panel shows the converted Verilog.
+- If nothing is highlighted, the logic of that line was optimized away — try the RTL view.
+
+### Timing analysis
+
+Press **⏱ Timing** in the viewer (it switches to the Gates view and flattens) for a static timing analysis of the gate-level netlist:
+
+<img src="./docs/timing.png" alt="VeriView timing analysis" width="800"/>
+
+- **Gate delays:** every gate shows its delay in ps under its symbol (flip-flops: clk→Q); hover a gate or a wire for arrival times and slack.
+- **Constraints** (live, per design): clock period (`2ns`, `500ps`, `250MHz`), input delay, output delay and clock uncertainty.
+- **Setup check** at every flip-flop data pin (D, enable, synchronous reset) and output: the longest path must arrive before *period − setup − uncertainty*.
+- **Hold check** at every flip-flop data pin: the shortest path must arrive after *hold + uncertainty*. Increase the clock uncertainty to see hold violations appear.
+- **Results:** total area, critical path and fmax, setup WNS/TNS, worst hold slack and the number of violations; gates are coloured by slack (red = violating, orange = within 10 % of the period).
+- **Paths:** the endpoint table is sorted by slack; click a row (or *setup path* / *hold path*) to highlight that path and zoom to it, or click any net or gate for the longest path leading to it.
+
+The same analysis on the command line:
+
+```bash
+veriview ex_design/pipe_mac.sv --timing 600ps --uncertainty 50ps
+```
+
+prints the summary, the worst endpoints and the critical setup and hold paths step by step.
+
+The delay model is deliberately simple: one ideal clock, delay = intrinsic + k × fanout per gate, from a **generic, illustrative library** with values roughly in the range of a 130 nm process — good for learning and for comparing design alternatives, not for sign-off. Asynchronous set/reset pins are not timed. Mapping to a real standard-cell library (sky130) is on the [roadmap](ROADMAP.md).
 
 ### Simulation mode
 
@@ -239,6 +277,7 @@ Example designs live in `ex_design/`:
 | `gray/` (`gray.f`) | Binary→Gray→Binary round trip (`b2g2b`) (functionally a pass-through) |
 | `mux/mux_basic.sv` | 2:1 multiplexer |
 | `mux/mux.sv` | N:1 multiplexer with unpacked array ports (needs sv2v or yosys-slang) |
+| `pipe_mac.sv` | Pipelined multiply-accumulate (good for timing analysis) |
 
 All results below are generated with `make examples`.
 
@@ -333,6 +372,7 @@ Code layout (`src/veriview/`):
 | `render.py` | netlistsvg, SVG post-processing, `--open` |
 | `html.py`, `viewer.html` | interactive HTML viewer (`--html`) |
 | `sim.js` | browser simulation engine (DOM-free; inlined into the viewer, tested with node) |
+| `timing.js`, `timing_report.py` | static timing engine (viewer and `--timing`) |
 | `scope.py` | `--select`, `--depth`, `--cone` (operating on the JSON netlist) |
 | `watch.py` | `--watch`: file polling, local live-reload server |
 | `tools.py` | finding/installing yosys, netlistsvg, sv2v |

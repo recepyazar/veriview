@@ -35,6 +35,7 @@ examples:
   veriview design.f -t cpu_core --html --open      # interactive hierarchy viewer
   veriview design.f --select u_core/u_alu --depth 1 # one sub-block, one level expanded
   veriview design.f --cone o_valid                  # only the logic driving o_valid
+  veriview design.f --timing 2ns                    # gate-level timing report (setup/hold, fmax, area)
 """
 
 
@@ -69,6 +70,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--html", action="store_true",
                    help="write an interactive HTML viewer (hierarchy navigation, stage/flatten switches, "
                         "cone highlighting)")
+    p.add_argument("--timing", metavar="PERIOD",
+                   help="print a static timing report of the gate-level netlist for this clock period "
+                        "(e.g. 2ns, 500ps, 250MHz) instead of drawing")
+    p.add_argument("--input-delay", default="100ps", metavar="T", help="--timing: input arrival after the clock edge")
+    p.add_argument("--output-delay", default="0ps", metavar="T", help="--timing: required output setup before the edge")
+    p.add_argument("--uncertainty", default="0ps", metavar="T", help="--timing: clock uncertainty (skew/jitter)")
     p.add_argument("--html-stages", default=",".join(STAGES), metavar="LIST",
                    help="stages embedded in the HTML viewer (default: elab,opt,gate; --stage is shown first)")
     p.add_argument("--frontend", choices=FRONTENDS, default="auto",
@@ -163,6 +170,8 @@ def run(argv: list[str] | None = None) -> int:
         raise VeriViewError("--flatten and --depth cannot be combined (--flatten expands every level).")
     if args.depth is not None and args.depth < 0:
         raise VeriViewError("--depth must be >= 0.")
+    if args.timing and (args.html or args.split or args.cone or args.depth is not None):
+        raise VeriViewError("--timing prints a report; it cannot be combined with --html, --split, --cone or --depth.")
     if args.html and (args.depth is not None or args.cone):
         raise VeriViewError("--depth and --cone are interactive in the HTML viewer "
                             "(navigate into sub-modules, click a net to highlight its cone).")
@@ -189,6 +198,25 @@ def run(argv: list[str] | None = None) -> int:
     if args.open and out is not None:
         open_path(out)
     return status
+
+
+def _run_timing(args: argparse.Namespace, synth: Synthesizer, work: Path) -> int:
+    from .timing_report import analyze, format_report
+    json_path = work / "netlist_gate.json"
+    log.info("Running synthesis (gate)...")
+    synth.synthesize(args.top, json_path, stage="gate")
+    netlist = json.loads(json_path.read_text(encoding="utf-8"))
+    root = find_top(netlist["modules"])
+    if args.select:
+        root, _ = resolve_instance(netlist["modules"], root, args.select)
+    netlist, root = reroot(netlist, root)
+    netlist = postprocess(synth.yosys, work, netlist, root, flatten=True, cones=[])
+    res = analyze(netlist["modules"][root], work, {
+        "period": args.timing, "inputDelay": args.input_delay,
+        "outputDelay": args.output_delay, "uncertainty": args.uncertainty,
+    })
+    print(format_report(res, root))
+    return 0
 
 
 def _build(args: argparse.Namespace, inputs: list[str], html_stages: list[str]) -> BuildResult:
@@ -222,6 +250,9 @@ def _build(args: argparse.Namespace, inputs: list[str], html_stages: list[str]) 
 
         if args.html:
             return 0, _run_html(args, inputs, synth, work, html_stages), sources
+
+        if args.timing:
+            return _run_timing(args, synth, work), None, sources
 
         json_path = work / "netlist.json"
         log.info("Running synthesis...")

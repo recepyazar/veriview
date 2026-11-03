@@ -64,7 +64,8 @@ Goal: anyone can run `pipx install veriview` / `uv tool install veriview` / `pip
 
 Ordered so that each step is useful on its own and builds on the previous one.
 
-1. **Area and timing estimates (post-synthesis)**
+0. ✅ **Gate-level timing with a generic library** (5.7.0): per-gate delays, setup/hold checks, critical path, fmax, area — in the viewer and as `--timing`.
+1. **Area and timing estimates with a real library (post-synthesis)**
    Map the gate-level netlist to an open standard-cell library (SkyWater **sky130**), report cell count and area (µm²),
    run **OpenSTA** for the critical path and an estimated fmax, and highlight the critical path in the viewer
    (reusing the cone-highlighting machinery). Rough power estimate from switching activity of the waveform simulation.

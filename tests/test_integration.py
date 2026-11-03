@@ -293,3 +293,31 @@ def test_syntax_error(tmp_path, capsys):
     (tmp_path / "broken.v").write_text("module broken(input a, output y);\n  assign y = ;\nendmodule\n")
     assert vv(tmp_path / "broken.v", "-o", tmp_path / "x.svg") == 1
     assert "syntax error" in capsys.readouterr().err
+
+
+def test_html_viewer_source_links(tmp_path):
+    out = tmp_path / "rca.html"
+    assert vv(EX / "rca" / "rca.f", "--html", "-o", out) == 0
+    data = _viewer_data(out)
+    srcs = data["sources"]
+    assert {Path(p).name for p in srcs} == {"rca.sv", "fa.sv", "ha.sv"}
+    assert "assign cout = c1 | c2;" in next(v["text"] for p, v in srcs.items() if p.endswith("fa.sv"))
+    fa = data["views"]["opt"]["modules"]["fa"]["hier"]["net"]
+    # every cell knows its source line; the OR gate comes from fa.sv line 25
+    assert set(fa["src"]) == set(fa["cells"])
+    or_cell = next(c for c, v in fa["cells"].items() if v[0] == "$or")
+    assert fa["src"][or_cell].endswith("fa.sv:25.17-25.24")
+    assert fa["nsrc"]["c1"].endswith("fa.sv:9.13-9.15")  # "logic s1, c1, c2;"
+    # technology-mapped gates inherit the location of the net they drive
+    flat = data["views"]["gate"]["modules"]["rca"]["flat"]["net"]
+    assert len(flat["src"]) == len(flat["cells"])
+    assert data["views"]["opt"]["modules"]["fa"]["src"].endswith("fa.sv:2.1-26.10")
+
+
+@needs_sv
+def test_html_viewer_sources_sv2v(tmp_path):
+    out = tmp_path / "m.html"
+    assert vv(EX / "mux" / "mux.sv", "--html", "--html-stages", "opt", "-o", out) == 0
+    srcs = _viewer_data(out)["sources"]
+    conv = [v for p, v in srcs.items() if p.endswith(".sv2v.v")]
+    assert conv and "sv2v" in conv[0]["note"]

@@ -87,7 +87,8 @@ def test_split(tmp_path):
 def _viewer_data(html: Path) -> dict:
     import re
     text = html.read_text()
-    assert "</script>" in text and text.count("</script>") == 1
+    # two scripts: the simulation engine (sim.js) and the viewer; SVG/JSON must not add any
+    assert text.count("</script>") == 2
     return json.loads(re.search(r"const DATA = (.*?);\n", text).group(1))
 
 
@@ -109,7 +110,7 @@ def test_html_viewer(tmp_path):
         # every navigable instance must exist as a clickable cell in the SVG
         for inst in mods["rca"]["children"]:
             assert f'id="cell_{inst}"' in mods["rca"]["hier"]["svg"]
-    gate_types = {t for t, _ in data["views"]["gate"]["modules"]["ha"]["hier"]["net"]["cells"].values()}
+    gate_types = {c[0] for c in data["views"]["gate"]["modules"]["ha"]["hier"]["net"]["cells"].values()}
     assert gate_types and all(t.startswith("$_") for t in gate_types)
 
 
@@ -121,10 +122,11 @@ def test_html_viewer_netlist_for_cones(tmp_path):
     net = data["views"]["opt"]["modules"]["seqdect"]["hier"]["net"]
     assert net["ports"]["o_detected"][0] == "output"
     assert "shift_reg" in net["names"]
-    types = {t for t, _ in net["cells"].values()}
+    types = {c[0] for c in net["cells"].values()}
     assert "$adff" in types and "$eq" in types
     # every cell connection carries a direction (needed to walk cones)
-    for _, conns in net["cells"].values():
+    for cell in net["cells"].values():
+        conns = cell[1]
         assert all(d in ("input", "output", "inout") for d, _ in conns.values())
 
 

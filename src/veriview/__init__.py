@@ -1,3 +1,3 @@
 """VeriView - Verilog/SystemVerilog to SVG schematic generator."""
 
-__version__ = "5.4.1"
+__version__ = "5.6.0"

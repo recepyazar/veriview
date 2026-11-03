@@ -13,6 +13,7 @@ It wraps **Yosys** and **netlistsvg** (plus, optionally, **sv2v** or **yosys-sla
 - **File lists (`.f`)** – `+incdir+`, `+define+`, nested `-f`/`-F`, `-v`, `$VAR`/`${VAR}`/`$(VAR)` and comments.
 - **Include dirs & defines** – `-I` and `-D` on the command line.
 - **Interactive HTML viewer** – `--html` writes a single self-contained page: click into sub-modules, switch between RTL / optimized / gate views, flatten any module, and click a net to highlight its fan-in or fan-out cone.
+- **Simulation mode** – drive the inputs, clock the design and watch the 1-valued wires light up, right in the schematic (also inside sub-modules).
 - **Hierarchy control** – keep sub-modules as boxes or `--flatten` them; `--split` renders one SVG per module.
 - **Live mode** – `--watch` rebuilds on every save; with `--html` the viewer is served locally and the browser refreshes by itself.
 - **Focus on what matters** – `--select` a sub-instance, expand only `--depth N` levels, or draw just the `--cone` of logic driving a signal.
@@ -121,6 +122,33 @@ The output is one HTML file with every module of the design embedded (no interne
 - The current position and view are kept in the URL (`rca.html#/fa_block[3].fa_inst?stage=gate&flat=1`), so the back button works and links point to a specific view.
 
 Rendering every view takes longer for big designs; use `--html-stages opt` to embed only one view.
+
+### Simulation mode
+
+Press **▶ Simulate** in the viewer to turn the schematic into a logic simulator:
+
+<img src="./docs/simulation.png" alt="VeriView simulation mode" width="800"/>
+
+- **Inputs:** click an input port in the schematic to toggle it, or edit values in the **Signals** panel (checkbox for 1-bit inputs; buses accept `5`, `0x1F`, `0b101`, `8'hA5`, ...).
+- **Clock:** pick the clock input, then **Step** one cycle or **Run** N cycles (Enter in the cycle box also runs); **Reset** clears all registers. You can also toggle the clock port by hand — every rising edge counts as a cycle.
+- **Resets:** inputs that drive a register reset start *inactive* (an active-low `rst_n` starts at 1), even through sub-modules. If registers are held in reset, the status line says so, e.g. *"4 registers held in reset by rst_n = 0"*.
+- **Watching values:** wires that are 1 turn green (buses that are partly 1 are dashed), every port shows its value, hovering a wire shows its name and value, and the Signals panel lists every named signal of the current module.
+- **Hierarchy:** open any sub-module while simulating to see its internal values — each instance has its own state. Works in all three views (RTL / Optimized / Gates).
+- Inputs are remembered across reloads (handy with `--watch`).
+
+#### Waveform
+
+Press **〰 Waveform** (in simulation mode) to draw the input stimulus by hand and see the result as a timing diagram:
+
+<img src="./docs/waveform.png" alt="VeriView waveform panel" width="800"/>
+
+- **Inputs:** click a cell to toggle that cycle, **Shift-click** to set that cycle and every later one; bus cells ask for a value. Changing an input in the schematic or the Signals panel sets it from the selected cycle onwards.
+- **Outputs** are recomputed instantly on every change. Top-level outputs are shown by default; **+ Add signal…** adds any named signal of the top module, **×** removes one.
+- **Timing:** each column is one clock cycle. A cycle starts with the rising clock edge (registers capture the inputs of the previous cycle), then that cycle's inputs are applied. With no clock selected, each column is just a time step (useful for combinational designs).
+- Click a **cycle number** to see that cycle in the schematic (also inside sub-modules).
+- **VCD** downloads the waveform for GTKWave or any other waveform viewer.
+
+How it works and its limits: a two-valued (0/1), cycle-based simulation of the synthesized netlist running in the browser. Registers start at 0 and update on the active edge of their own clock net; asynchronous resets/sets and latches act immediately; undriven, `x` and `z` bits read as 0. It simulates what Yosys built, not the HDL source itself, so there are no delays, `initial` blocks or testbenches. Memories (`$mem`) are not supported yet (the status line lists any unsupported cells). Flattening is disabled while simulating.
 
 ### Live mode (`--watch`)
 
@@ -295,6 +323,7 @@ Code layout (`src/veriview/`):
 | `synth.py` | Yosys scripts, frontend fallback (yosys → slang → sv2v) |
 | `render.py` | netlistsvg, SVG post-processing, `--open` |
 | `html.py`, `viewer.html` | interactive HTML viewer (`--html`) |
+| `sim.js` | browser simulation engine (DOM-free; inlined into the viewer, tested with node) |
 | `scope.py` | `--select`, `--depth`, `--cone` (operating on the JSON netlist) |
 | `watch.py` | `--watch`: file polling, local live-reload server |
 | `tools.py` | finding/installing yosys, netlistsvg, sv2v |

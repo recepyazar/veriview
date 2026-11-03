@@ -8,7 +8,7 @@
   :root {
     --bg: #f6f7f9; --panel: #ffffff; --border: #dde1e6; --text: #1d232b; --muted: #5f6b7a;
     --accent: #2563eb; --on-accent: #ffffff; --accent-soft: #e6eefc; --paper: #ffffff; --link-fill: #eef4ff;
-    --cone: #e8590c; --schematic-filter: none;
+    --cone: #e8590c; --sim1: #15a34a; --schematic-filter: none;
   }
   :root[data-theme="dark"] {
     --bg: #111418; --panel: #181c21; --border: #2a3038; --text: #e6e9ed; --muted: #95a0ad;
@@ -25,8 +25,8 @@
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
-    display: grid; grid-template-rows: auto auto 1fr auto; grid-template-columns: 280px 1fr;
-    grid-template-areas: "head head" "side bar" "side main" "side foot";
+    display: grid; grid-template-rows: auto auto 1fr auto auto; grid-template-columns: 280px 1fr;
+    grid-template-areas: "head head" "side bar" "side main" "side wave" "side foot";
     background: var(--bg); color: var(--text);
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
@@ -113,11 +113,54 @@
     background: var(--panel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px;
   }
   footer b { color: var(--cone); font-weight: 600; }
+  /* simulation */
+  #canvas svg line.vv-v1 { stroke: var(--sim1) !important; stroke-width: 3px !important; }
+  #canvas svg line.vv-vm { stroke: var(--sim1) !important; stroke-width: 2px !important; stroke-dasharray: 6 3; }
+  #canvas svg circle.vv-v1, #canvas svg circle.vv-vm { fill: var(--sim1) !important; stroke: var(--sim1) !important; }
+  #canvas svg text.vv-val { font: bold 12px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #8a94a3; }
+  #canvas svg text.vv-val.on { fill: var(--sim1); }
+  #canvas svg g.vv-input { cursor: pointer; }
+  #canvas svg g.vv-input:hover > :not(text) { stroke: var(--sim1) !important; stroke-width: 2px !important; }
+  #sim-panel { border-top: 1px solid var(--border); max-height: 48%; overflow: auto; padding: 8px 10px 12px; }
+  #sim-panel h3 { margin: 4px 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  #sim-table { width: 100%; border-collapse: collapse; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #sim-table td { padding: 1px 4px; white-space: nowrap; }
+  #sim-table td:first-child { overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+  #sim-table td.dir { color: var(--muted); }
+  #sim-table tr.hi td.val { color: var(--sim1); font-weight: 600; }
+  #sim-table input[type="text"] { width: 90px; font: inherit; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+  #sim-cycle { color: var(--muted); font-size: 13px; }
+  [hidden] { display: none !important; }
+  /* waveform */
+  #wave { grid-area: wave; margin: 0 12px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--panel); display: flex; flex-direction: column; height: 240px; min-height: 120px; resize: vertical; overflow: hidden; }
+  #wave .wave-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  #wave .wave-head b { font-weight: 600; }
+  #wave .wave-head .note { color: var(--muted); }
+  #wave .wave-head input, #wave .wave-head select { padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+  #wave-body { overflow: auto; flex: 1; }
+  svg.wave { display: block; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  /* netlistsvg's skin <style> is global; keep it from styling the waveform */
+  svg.wave rect, svg.wave text { stroke: none !important; }
+  svg.wave .w-grid { stroke: var(--border); }
+  svg.wave .w-cursor { fill: var(--accent-soft); }
+  svg.wave .w-num { fill: var(--muted); cursor: pointer; }
+  svg.wave .w-num.on { fill: var(--accent); font-weight: 700; }
+  svg.wave .w-label { fill: var(--text); }
+  svg.wave .w-label.in { fill: var(--accent); }
+  svg.wave .w-del { fill: var(--muted); cursor: pointer; }
+  svg.wave .w-line, svg.wave .w-clk { fill: none; stroke: var(--sim1); stroke-width: 1.6; }
+  svg.wave .w-clk { stroke: var(--muted); }
+  svg.wave .w-fill { fill: var(--sim1); opacity: 0.12; }
+  svg.wave .w-bus { fill: none; stroke: var(--sim1); stroke-width: 1.4; }
+  svg.wave .w-val { fill: var(--text); font-size: 11px; }
+  svg.wave .w-hit { fill: transparent; cursor: pointer; }
+  svg.wave .w-hit:hover { fill: var(--accent); opacity: 0.12; }
   .hint { position: absolute; right: 24px; bottom: 20px; color: var(--muted); font-size: 12px; pointer-events: none; }
   @media (max-width: 760px) {
     body {
-      grid-template-columns: 1fr; grid-template-rows: auto auto auto 1fr auto;
-      grid-template-areas: "head" "side" "bar" "main" "foot";
+      grid-template-columns: 1fr; grid-template-rows: auto auto auto 1fr auto auto;
+      grid-template-areas: "head" "side" "bar" "main" "wave" "foot";
     }
     aside { max-height: 26vh; border-right: 0; border-bottom: 1px solid var(--border); }
     header { flex-wrap: wrap; }
@@ -142,7 +185,18 @@
     <div class="seg" id="stages" role="group" aria-label="Stage"></div>
   </div>
   <button class="btn" id="btn-flat" aria-pressed="false" title="Flatten this module (expand all sub-modules)">Flatten</button>
-  <div class="group">
+  <button class="btn" id="btn-sim" aria-pressed="false" title="Simulation mode: set inputs, clock the design and watch values propagate">▶ Simulate</button>
+  <div class="group" id="sim-controls" hidden>
+    <label for="sim-clk">Clock</label>
+    <select id="sim-clk" title="Input used as clock"></select>
+    <button class="btn" id="sim-step" title="One clock cycle (rising + falling edge)">Step ⏵</button>
+    <input id="sim-n" type="number" min="1" max="100000" value="10" style="width:70px" aria-label="Cycles">
+    <button class="btn" id="sim-run" title="Run this many clock cycles">Run</button>
+    <button class="btn" id="sim-reset" title="Reset all registers to 0">Reset</button>
+    <span id="sim-cycle"></span>
+    <button class="btn" id="btn-wave" aria-pressed="false" title="Draw input waveforms by hand and see the outputs">〰 Waveform</button>
+  </div>
+  <div class="group cone-ui">
     <label for="cone-mode">Click a net to show its</label>
     <select id="cone-mode">
       <option value="in">fan-in cone</option>
@@ -150,7 +204,7 @@
       <option value="both">fan-in + fan-out</option>
     </select>
   </div>
-  <div class="group">
+  <div class="group cone-ui">
     <input id="signal" type="search" list="signals" placeholder="Highlight signal…" aria-label="Highlight signal">
     <datalist id="signals"></datalist>
     <button class="btn" id="btn-clear" title="Clear highlight (Esc)" disabled>Clear</button>
@@ -159,13 +213,31 @@
 <aside>
   <input id="filter" type="search" placeholder="Filter instances / modules…" aria-label="Filter hierarchy">
   <div id="tree"></div>
+  <section id="sim-panel" hidden>
+    <h3>Signals <span id="sim-where"></span></h3>
+    <table id="sim-table"></table>
+  </section>
 </aside>
 <main>
   <div id="canvas" tabindex="0" aria-label="Schematic"></div>
-  <div class="hint">Wheel: zoom · Drag: pan · Click a sub-module to open it · Click a net for its cone (Shift: fan-out)</div>
+  <div class="hint" id="hint">Wheel: zoom · Drag: pan · Click a sub-module to open it · Click a net for its cone (Shift: fan-out)</div>
 </main>
+<section id="wave" hidden aria-label="Waveform">
+  <div class="wave-head">
+    <b>Waveform</b>
+    <label>Cycles <input id="wave-n" type="number" min="1" max="512" value="16" style="width:64px"></label>
+    <select id="wave-add" aria-label="Add signal"></select>
+    <button class="btn" id="wave-clear" title="Reset all input waveforms">Clear inputs</button>
+    <button class="btn" id="wave-vcd" title="Download as VCD (GTKWave)">VCD</button>
+    <span class="note">Click an input cell to change it (Shift: this and all later cycles) · click a cycle number to see it in the schematic</span>
+  </div>
+  <div id="wave-body"></div>
+</section>
 <footer id="status"></footer>
 
+<script>
+/*__VERIVIEW_SIM__*/
+</script>
 <script>
 const DATA = /*__VERIVIEW_DATA__*/null;
 
@@ -182,7 +254,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   };
 
   // ---- state & URL hash: #/inst/inst?stage=opt&flat=1 ---------------------
-  const state = { stage: DATA.defaultStage, flat: DATA.defaultFlat, path: [], cone: "", notice: "" };
+  const state = { stage: DATA.defaultStage, flat: DATA.defaultFlat, sim: false, wave: false, path: [], cone: "", notice: "" };
   const view = () => DATA.views[state.stage];
   const mods = () => view().modules;
 
@@ -206,6 +278,8 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const st = params.get("stage");
     if (st && DATA.views[st]) state.stage = st;
     if (params.has("flat")) state.flat = params.get("flat") === "1";
+    state.sim = params.get("sim") === "1";
+    state.wave = state.sim && params.get("wave") === "1";
     const path = p ? p.split("/").map(decodeURIComponent) : [];
     const valid = validPrefix(path);
     state.notice = valid.length < path.length
@@ -217,6 +291,8 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const s = { ...state, ...patch };
     const q = new URLSearchParams({ stage: s.stage });
     if (s.flat) q.set("flat", "1");
+    if (s.sim) q.set("sim", "1");
+    if (s.sim && s.wave) q.set("wave", "1");
     location.hash = "/" + s.path.map(encodeURIComponent).join("/") + "?" + q.toString();
   };
 
@@ -364,8 +440,328 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     return "net " + bits.join(",");
   };
 
+  // ---- simulation (engine: sim.js, inlined above) --------------------------------
+  const { rd, fmtVal, parseVal, any } = VVSim;
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const hierNet = (m) => mods()[m].hier.net;
+  const sim = VVSim.createSimulator(hierNet, (t) => !!mods()[t]);
+  sim.stage = null;
+  const simReset = () => { sim.top = view().top; sim.stage = state.stage; sim.reset(true); };
+  // only inputs the user changed are remembered (across reloads, e.g. with --watch)
+  const STORE = "veriview-sim2:";
+  const saveInputs = () => {
+    try {
+      const keep = [...sim.inputs].filter(([p]) => sim.userSet.has(p));
+      sessionStorage.setItem(STORE + view().top, JSON.stringify(keep));
+    } catch (e) {}
+  };
+  const loadInputs = () => {
+    try {
+      const s = sessionStorage.getItem(STORE + view().top);
+      if (s) { const saved = JSON.parse(s); sim.inputs = new Map(saved); sim.userSet = new Set(saved.map(([p]) => p)); }
+    } catch (e) {}
+  };
+  let simNote = "";
+  const setInput = (p, bits) => {
+    if (state.wave && wave.stim[p]) { setStim(p, wave.cursor, bits, true); return; }
+    const clk = $("sim-clk").value, before = (sim.inputs.get(p) || [0])[0];
+    sim.setInput(p, bits);
+    if (p === clk && before === 0 && bits[0] === 1) sim.cycle++; // manual clock edge
+    saveInputs();
+  };
+  const clockCycles = (n) => {
+    const clk = $("sim-clk").value;
+    if (!clk) { simNote = "choose the clock input first (Clock ▾)"; return; }
+    simNote = "";
+    sim.clock(clk, n);
+    saveInputs();
+  };
+
+  function applySim() {
+    const key = state.path.length ? "/" + state.path.join("/") : "";
+    const vals = sim.values(key);
+    for (const el of svg.querySelectorAll('line[class*="net_"], circle[class*="net_"]')) {
+      const bits = netBits(el);
+      if (!bits) continue;
+      const v = rd(vals, bits);
+      if (el.classList.contains("vv-hit")) {
+        let t = el.querySelector("title");
+        if (!t) { t = document.createElementNS(SVGNS, "title"); el.append(t); }
+        t.textContent = `${nameOfBits(bits)} = ${fmtVal(v)}`;
+        continue;
+      }
+      el.classList.toggle("vv-v1", v.every((x) => x));
+      el.classList.toggle("vv-vm", !v.every((x) => x) && any(v));
+    }
+    for (const t of svg.querySelectorAll("text.vv-val")) t.remove();
+    const atTop = state.path.length === 0;
+    for (const [p, [dir, pb]] of Object.entries(net.ports)) {
+      const g = svg.querySelector(`g[id="cell_${CSS.escape(p)}"]`);
+      if (!g) continue;
+      const w = parseFloat(g.getAttribute("s:width")) || 30, h = parseFloat(g.getAttribute("s:height")) || 20;
+      const t = document.createElementNS(SVGNS, "text");
+      t.setAttribute("class", "vv-val"); t.setAttribute("x", w / 2); t.setAttribute("y", h + 14);
+      t.setAttribute("text-anchor", "middle");
+      const pv = rd(vals, pb);
+      t.textContent = fmtVal(pv);
+      if (any(pv)) t.classList.add("on");
+      g.append(t);
+      g.classList.toggle("vv-input", atTop && dir !== "output");
+    }
+    renderSimPanel(vals);
+    $("sim-cycle").textContent = `cycle ${sim.cycle}`;
+  }
+  function renderSimPanel(vals) {
+    const tbl = $("sim-table");
+    tbl.textContent = "";
+    const atTop = !state.path.length;
+    $("sim-where").textContent = atTop ? "" : "· " + state.path[state.path.length - 1];
+    const rows = [];
+    for (const [p, [dir, pb]] of Object.entries(net.ports)) rows.push([p, dir === "output" ? "out" : dir === "input" ? "in" : "io", pb, atTop && dir !== "output"]);
+    for (const [n, b] of Object.entries(net.names).sort((x, y) => x[0].localeCompare(y[0], undefined, { numeric: true }))) {
+      if (!net.ports[n]) rows.push([n, "", b, false]);
+    }
+    for (const [name, dir, bits, editable] of rows) {
+      const v = rd(vals, bits);
+      const tr = document.createElement("tr");
+      if (any(v)) tr.className = "hi";
+      const td = (cls) => { const e = document.createElement("td"); if (cls) e.className = cls; tr.append(e); return e; };
+      const n = td(); n.textContent = name; n.title = name;
+      td("dir").textContent = dir;
+      const cell = td("val");
+      if (editable && bits.length === 1) {
+        const cb = document.createElement("input");
+        cb.type = "checkbox"; cb.checked = !!v[0]; cb.setAttribute("aria-label", name);
+        cb.onchange = () => { setInput(name, [cb.checked ? 1 : 0]); refreshSim(); };
+        cell.append(cb, document.createTextNode(" " + v[0]));
+      } else if (editable) {
+        const inp = document.createElement("input");
+        inp.type = "text"; inp.value = fmtVal(v).split(" ")[0]; inp.setAttribute("aria-label", name);
+        inp.title = "Value, e.g. 5, 0x1F, 0b101, 8'hA5";
+        inp.onchange = () => {
+          const nv = parseVal(inp.value, bits.length);
+          if (nv) { setInput(name, nv); refreshSim(); } else { inp.setCustomValidity("Invalid value"); inp.reportValidity(); }
+        };
+        cell.append(inp);
+      } else cell.textContent = fmtVal(v);
+      tbl.append(tr);
+    }
+  }
+  const refreshSim = () => { if (svg && state.sim) { applySim(); renderStatus(); } };
+  function simClick(e) {
+    if (state.path.length) return;
+    const g = e.target.closest && e.target.closest("g.vv-input");
+    if (!g) return;
+    const p = g.id.slice(5), cur = sim.inputs.get(p) || [0];
+    if (cur.length === 1) setInput(p, [1 - cur[0]]);
+    else {
+      const t = prompt(`Value for ${p} (${cur.length} bits), e.g. 5, 0x1F, 0b101`, fmtVal(cur).split(" ")[0]);
+      const nv = t === null ? null : parseVal(t, cur.length);
+      if (!nv) return;
+      setInput(p, nv);
+    }
+    refreshSim();
+  }
+  function fillClockSelect() {
+    const sel = $("sim-clk"), n = hierNet(view().top);
+    const ins = Object.entries(n.ports).filter(([, [dir, pb]]) => dir === "input" && pb.length === 1).map(([p]) => p);
+    const prev = sel.value;
+    sel.textContent = "";
+    const none = document.createElement("option"); none.value = ""; none.textContent = "(none)"; sel.append(none);
+    for (const p of ins) { const o = document.createElement("option"); o.value = o.textContent = p; sel.append(o); }
+    sel.value = ins.includes(prev) ? prev : ins.find((p) => /clk|clock/i.test(p)) || "";
+  }
+
+
+  // ---- waveform panel (simulation mode) --------------------------------------------
+  // The user draws the inputs per cycle; outputs/probes are recomputed on every edit.
+  const wave = { n: 16, stim: {}, probes: null, rec: {}, cursor: 0, top: null };
+  const WSTORE = "veriview-wave1:";
+  const topPorts = () => hierNet(view().top).ports;
+  const waveInputs = () => Object.entries(topPorts()).filter(([p, [dir]]) => dir !== "output" && p !== $("sim-clk").value).map(([p]) => p);
+  const saveWave = () => {
+    try { sessionStorage.setItem(WSTORE + view().top, JSON.stringify({ n: wave.n, stim: wave.stim, probes: wave.probes })); } catch (e) {}
+  };
+  function initWave() {
+    if (wave.top === view().top + "\u0000" + state.stage) return;
+    wave.top = view().top + "\u0000" + state.stage;
+    wave.stim = {}; wave.probes = null; wave.n = 16;
+    try {
+      const s = JSON.parse(sessionStorage.getItem(WSTORE + view().top) || "null");
+      if (s) { wave.n = s.n || 16; wave.stim = s.stim || {}; wave.probes = s.probes || null; }
+    } catch (e) {}
+    const ports = topPorts(), names = hierNet(view().top).names;
+    if (!wave.probes) wave.probes = Object.entries(ports).filter(([, [dir]]) => dir === "output").map(([p]) => p);
+    wave.probes = wave.probes.filter((p) => names[p] || ports[p]);
+    for (const p of waveInputs()) {
+      const w = ports[p][1].length, def = sim.resetPorts.has(p) ? [sim.resetPorts.get(p)] : new Array(w).fill(0);
+      const row = (wave.stim[p] || []).filter((v) => v.length === w);
+      while (row.length < wave.n) row.push((row[row.length - 1] || def).slice());
+      wave.stim[p] = row.slice(0, Math.max(wave.n, row.length));
+    }
+    wave.cursor = Math.min(wave.cursor, wave.n - 1);
+    $("wave-n").value = wave.n;
+  }
+  const probeBits = (p) => hierNet(view().top).names[p] || topPorts()[p][1];
+  function steps() {
+    const out = [];
+    for (let t = 0; t < wave.n; t++) {
+      const st = {};
+      for (const p of waveInputs()) st[p] = wave.stim[p][t];
+      out.push(st);
+    }
+    return out;
+  }
+  // Recompute the recording, then leave the design in the state of the cursor cycle.
+  function runWaveNow() {
+    const clk = $("sim-clk").value, probes = {};
+    for (const p of wave.probes) probes[p] = probeBits(p);
+    const st = steps();
+    wave.rec = sim.runWave(clk, st, probes);
+    sim.runWave(clk, st, {}, wave.cursor);
+    saveWave();
+  }
+  function setStim(p, t, bits, toEnd) {
+    for (let i = t; i < (toEnd ? wave.n : t + 1); i++) wave.stim[p][i] = bits.slice();
+    runWaveNow(); drawWave(); refreshSim();
+  }
+
+  const CW = 44, RH = 26, LW = 150, HH = 22;
+  function drawWave() {
+    const body = $("wave-body");
+    if (!state.wave) return;
+    const clk = $("sim-clk").value, ins = waveInputs();
+    const rows = [];
+    if (clk) rows.push({ kind: "clk", name: clk });
+    for (const p of ins) rows.push({ kind: "in", name: p, values: wave.stim[p] });
+    for (const p of wave.probes) rows.push({ kind: "probe", name: p, values: wave.rec[p] || [] });
+    const W = LW + wave.n * CW + 10, H = HH + rows.length * RH + 6;
+    const e = (tag, attrs, text) => {
+      const el = document.createElementNS(SVGNS, tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      if (text !== undefined) el.textContent = text;
+      return el;
+    };
+    const svgw = e("svg", { width: W, height: H, class: "wave" });
+    svgw.append(e("rect", { x: LW + wave.cursor * CW, y: 0, width: CW, height: H, class: "w-cursor" }));
+    for (let t = 0; t < wave.n; t++) {
+      const x = LW + t * CW;
+      const hdr = e("text", { x: x + CW / 2, y: 15, class: "w-num" + (t === wave.cursor ? " on" : ""), "text-anchor": "middle" }, String(t));
+      hdr.addEventListener("click", () => { wave.cursor = t; sim.runWave(clk, steps(), {}, t); drawWave(); refreshSim(); });
+      svgw.append(e("line", { x1: x, x2: x, y1: HH - 2, y2: H, class: "w-grid" }), hdr);
+    }
+    rows.forEach((r, i) => {
+      const y = HH + i * RH, hi = y + 5, lo = y + RH - 5, mid = (hi + lo) / 2;
+      const label = e("text", { x: 8, y: mid + 4, class: "w-label " + r.kind }, r.name + (r.kind === "in" ? " ✎" : ""));
+      svgw.append(label);
+      if (r.kind === "probe") {
+        const x = e("text", { x: LW - 16, y: mid + 4, class: "w-del" }, "×");
+        x.addEventListener("click", () => { wave.probes = wave.probes.filter((p) => p !== r.name); runWaveNow(); drawWave(); fillWaveAdd(); });
+        x.append(e("title", {}, "Remove from waveform"));
+        svgw.append(x);
+      }
+      if (r.kind === "clk") {
+        let d = `M ${LW} ${lo}`;
+        for (let t = 0; t < wave.n; t++) {
+          const x = LW + t * CW;
+          d += t > 0 ? ` L ${x} ${lo} L ${x} ${hi} L ${x + CW / 2} ${hi} L ${x + CW / 2} ${lo}` : ` L ${x + CW / 2} ${lo}`;
+        }
+        d += ` L ${LW + wave.n * CW} ${lo}`;
+        svgw.append(e("path", { d, class: "w-clk" }));
+        return;
+      }
+      const vals = r.values;
+      const width = vals.length ? vals[0].length : 1;
+      if (width === 1) {
+        let d = "";
+        vals.forEach((v, t) => {
+          const x = LW + t * CW, yy = v[0] ? hi : lo;
+          d += t === 0 ? `M ${x} ${yy}` : ` L ${x} ${yy}`;
+          d += ` L ${x + CW} ${yy}`;
+          if (v[0]) svgw.append(e("rect", { x, y: hi, width: CW, height: lo - hi, class: "w-fill" }));
+        });
+        svgw.append(e("path", { d, class: "w-line" }));
+      } else {
+        let t0 = 0;
+        for (let t = 1; t <= vals.length; t++) {
+          if (t < vals.length && vals[t].join("") === vals[t0].join("")) continue;
+          const x0 = LW + t0 * CW, x1 = LW + t * CW, k = 4;
+          svgw.append(e("path", { d: `M ${x0} ${mid} L ${x0 + k} ${hi} L ${x1 - k} ${hi} L ${x1} ${mid} L ${x1 - k} ${lo} L ${x0 + k} ${lo} Z`, class: "w-bus" }));
+          const txt = "0x" + VVSim.toBig(vals[t0]).toString(16).toUpperCase();
+          if ((t - t0) * CW > txt.length * 7 + 6) svgw.append(e("text", { x: (x0 + x1) / 2, y: mid + 4, class: "w-val", "text-anchor": "middle" }, txt));
+          t0 = t;
+        }
+      }
+      if (r.kind === "in") {
+        for (let t = 0; t < wave.n; t++) {
+          const hit = e("rect", { x: LW + t * CW, y, width: CW, height: RH, class: "w-hit" });
+          hit.append(e("title", {}, `${r.name} @ cycle ${t} = ${fmtVal(vals[t])}\nclick: change this cycle · shift-click: this and all later cycles`));
+          hit.addEventListener("click", (ev) => {
+            const cur = vals[t];
+            let nv;
+            if (cur.length === 1) nv = [1 - cur[0]];
+            else {
+              const s = prompt(`${r.name} in cycle ${t}${ev.shiftKey ? " and later" : ""} (${cur.length} bits), e.g. 5, 0x1F, 0b101`, fmtVal(cur).split(" ")[0]);
+              nv = s === null ? null : parseVal(s, cur.length);
+              if (!nv) return;
+            }
+            setStim(r.name, t, nv, ev.shiftKey);
+          });
+          svgw.append(hit);
+        }
+      }
+    });
+    body.textContent = "";
+    body.append(svgw);
+  }
+  function fillWaveAdd() {
+    const sel = $("wave-add"), names = hierNet(view().top).names;
+    sel.textContent = "";
+    const first = document.createElement("option"); first.value = ""; first.textContent = "+ Add signal…"; sel.append(first);
+    for (const n of Object.keys(names).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))) {
+      if (wave.probes.includes(n) || (topPorts()[n] && topPorts()[n][0] !== "output")) continue;
+      const o = document.createElement("option"); o.value = o.textContent = n; sel.append(o);
+    }
+  }
+  function openWave() {
+    initWave(); fillWaveAdd(); runWaveNow(); drawWave();
+  }
+  $("wave-add").addEventListener("change", (ev) => {
+    const n = ev.target.value;
+    if (n && !wave.probes.includes(n)) { wave.probes.push(n); runWaveNow(); drawWave(); fillWaveAdd(); }
+  });
+  $("wave-n").addEventListener("change", (ev) => {
+    const n = Math.min(512, Math.max(1, parseInt(ev.target.value, 10) || 16));
+    wave.n = n;
+    for (const p of waveInputs()) {
+      const row = wave.stim[p];
+      while (row.length < n) row.push(row[row.length - 1].slice());
+    }
+    wave.cursor = Math.min(wave.cursor, n - 1);
+    runWaveNow(); drawWave(); refreshSim();
+  });
+  $("wave-clear").onclick = () => {
+    wave.stim = {}; wave.top = null;
+    try { sessionStorage.removeItem(WSTORE + view().top); } catch (e) {}
+    const probes = wave.probes;
+    initWave(); wave.probes = probes; runWaveNow(); drawWave(); refreshSim();
+  };
+  $("wave-vcd").onclick = () => {
+    const ins = waveInputs();
+    const sigs = [...ins.map((p) => ({ name: p, values: wave.stim[p] })), ...wave.probes.map((p) => ({ name: p, values: wave.rec[p] || [] }))];
+    const vcd = VVSim.toVCD(sigs, { clkName: $("sim-clk").value || null, top: view().top });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([vcd], { type: "text/plain" }));
+    a.download = `${view().top}.${state.stage}.vcd`.replace(/[^\w.-]+/g, "_");
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+
   // ---- rendering ---------------------------------------------------------------
-  const variant = (mod) => (state.flat && mod.flat ? mod.flat : mod.hier);
+  // flattened views are not simulated (simulation runs on the hierarchy)
+  const isFlat = (mod) => !!(state.flat && mod.flat && !state.sim);
+  const variant = (mod) => (isFlat(mod) ? mod.flat : mod.hier);
   const show = () => {
     const name = moduleOf(state.path), mod = mods()[name], v = variant(mod);
     canvas.innerHTML = v.svg;
@@ -379,7 +775,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       if (!netBits(line)) continue;
       const hit = line.cloneNode(); hit.classList.add("vv-hit"); line.before(hit);
     }
-    if (!(state.flat && mod.flat)) {
+    if (!isFlat(mod)) {
       for (const g of svg.querySelectorAll('g[id^="cell_"]')) {
         const inst = g.id.slice(5);
         if (mod.children[inst]) {
@@ -397,6 +793,11 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     state.cone = "";
     $("btn-clear").disabled = true;
     fit();
+    if (state.sim) {
+      if (sim.stage !== state.stage) { loadInputs(); simReset(); fillClockSelect(); }
+      if (state.wave) openWave();
+      applySim();
+    }
     renderControls(mod); renderCrumbs(); renderTree(); renderStatus();
     const inst = state.path.length ? state.path[state.path.length - 1] : name;
     document.title = `${inst} · ${mod.label} · VeriView`;
@@ -404,9 +805,23 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   const renderStatus = () => {
     const name = moduleOf(state.path), mod = mods()[name], v = variant(mod);
     const inst = state.path.length ? state.path[state.path.length - 1] : name;
+    if (state.sim) {
+      const warn = [];
+      if (sim.unsupported.size) warn.push(`unsupported cells (outputs held at 0): ${[...sim.unsupported].join(", ")}`);
+      if (sim.loopWarn) warn.push("a combinational loop did not settle");
+      for (const h of sim.held) {
+        warn.push(`${h.count} register${h.count === 1 ? "" : "s"} held in reset` +
+          (h.port ? ` by ${h.port} = ${h.level}` : " (by an internal signal)"));
+      }
+      if (simNote) warn.unshift(simNote);
+      statusEl.innerHTML = [`<b>Simulation</b> (${STAGE_INFO[state.stage][0]}) · cycle ${sim.cycle}`,
+        state.path.length ? "inputs are driven by the parent module" : "click an input port or edit values in the Signals panel",
+        ...warn.map((w) => `<b>${escapeHtml(w)}</b>`)].join("  ·  ");
+      return;
+    }
     const parts = state.cone ? [state.cone] : [
       `${escapeHtml(inst)} : ${escapeHtml(mod.label)}`,
-      STAGE_INFO[state.stage][0] + (state.flat && mod.flat ? ", flattened" : ""),
+      STAGE_INFO[state.stage][0] + (isFlat(mod) ? ", flattened" : ""),
       `${v.cells} cell${v.cells === 1 ? "" : "s"}`,
       mod.src && `source: ${escapeHtml(mod.src)}`,
     ];
@@ -417,7 +832,18 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     for (const b of $("stages").children) b.setAttribute("aria-pressed", String(b.dataset.stage === state.stage));
     const f = $("btn-flat");
     f.disabled = !mod.flat;
-    f.setAttribute("aria-pressed", String(!!(state.flat && mod.flat)));
+    f.setAttribute("aria-pressed", String(isFlat(mod)));
+    if (state.sim) { f.disabled = true; f.title = "Flatten is not available in simulation mode"; }
+    $("btn-sim").setAttribute("aria-pressed", String(state.sim));
+    $("sim-controls").hidden = !state.sim;
+    $("sim-panel").hidden = !state.sim;
+    $("wave").hidden = !(state.sim && state.wave);
+    $("btn-wave").setAttribute("aria-pressed", String(state.wave));
+    for (const id of ["sim-step", "sim-n", "sim-run", "sim-reset", "sim-cycle"]) $(id).hidden = state.wave;
+    for (const el of document.querySelectorAll(".cone-ui")) el.hidden = state.sim;
+    $("hint").textContent = state.sim
+      ? "Wheel: zoom · Drag: pan · Click an input port to toggle it · Hover a wire for its value"
+      : "Wheel: zoom · Drag: pan · Click a sub-module to open it · Click a net for its cone (Shift: fan-out)";
     f.title = mod.flat ? "Flatten this module (expand all sub-modules)" : "This module has no sub-modules";
     $("btn-up").disabled = state.path.length === 0;
   };
@@ -427,6 +853,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const t = e.target;
     const link = t.closest && t.closest("g.vv-link");
     if (link) { go({ path: [...state.path, link.id.slice(5)] }); return; }
+    if (state.sim) { simClick(e); return; }
     const mode = e.shiftKey ? "out" : $("cone-mode").value;
     const bits = t.matches && t.matches("line, circle") ? netBits(t) : null;
     if (bits) { highlight(bits, mode, nameOfBits(bits)); return; }
@@ -542,6 +969,15 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   }
   if (DATA.stages.length < 2) $("stages").parentElement.style.display = "none";
   $("btn-flat").onclick = () => go({ flat: !state.flat });
+  $("btn-sim").onclick = () => go({ sim: !state.sim });
+  $("btn-wave").onclick = () => go({ wave: !state.wave });
+  $("sim-clk").addEventListener("change", () => {
+    if (state.wave) { wave.top = null; openWave(); refreshSim(); }
+  });
+  $("sim-step").onclick = () => { clockCycles(1); refreshSim(); };
+  $("sim-n").addEventListener("keydown", (e) => { if (e.key === "Enter") $("sim-run").click(); });
+  $("sim-run").onclick = () => { clockCycles(Math.min(100000, Math.max(1, parseInt($("sim-n").value, 10) || 1))); refreshSim(); };
+  $("sim-reset").onclick = () => { simReset(); refreshSim(); };
   const up = () => { if (state.path.length) go({ path: state.path.slice(0, -1) }); };
   $("btn-up").onclick = up;
   $("btn-fit").onclick = fit;
@@ -551,7 +987,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     const base = state.path.length ? state.path.join(".") : view().top;
-    a.download = `${base}.${state.stage}${state.flat && mod.flat ? ".flat" : ""}`.replace(/[^\w.-]+/g, "_") + ".svg";
+    a.download = `${base}.${state.stage}${isFlat(mod) ? ".flat" : ""}`.replace(/[^\w.-]+/g, "_") + ".svg";
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };

@@ -22,6 +22,8 @@ from .render import run_netlistsvg
 from .scope import TOP_ATTR, find_top, postprocess, reroot, user_children
 
 TEMPLATE = Path(__file__).with_name("viewer.html")
+SIM_JS = Path(__file__).with_name("sim.js")
+SIM_PLACEHOLDER = "/*__VERIVIEW_SIM__*/"
 DATA_PLACEHOLDER = "/*__VERIVIEW_DATA__*/null"
 TITLE_PLACEHOLDER = "__VERIVIEW_TITLE__"
 
@@ -58,12 +60,16 @@ def display_name(module: str, attrs: dict[str, Any] | None = None) -> str:
 
 
 def slim_netlist(mod: dict[str, Any]) -> dict[str, Any]:
-    """Connectivity needed for cone highlighting in the browser."""
+    """Connectivity (+ cell parameters) for cone highlighting and simulation in the browser."""
     cells = {}
     for name, cell in mod.get("cells", {}).items():
         dirs = cell.get("port_directions", {})
-        cells[name] = [cell.get("type", ""),
-                       {p: [dirs.get(p, ""), bits] for p, bits in cell.get("connections", {}).items()}]
+        ctype = cell.get("type", "")
+        entry = [ctype, {p: [dirs.get(p, ""), bits] for p, bits in cell.get("connections", {}).items()}]
+        if ctype.startswith("$") and cell.get("parameters"):
+            # widths, signedness, polarities, reset values: needed by the simulator
+            entry.append(cell["parameters"])
+        cells[name] = entry
     ports = {name: [p.get("direction", ""), p.get("bits", [])] for name, p in mod.get("ports", {}).items()}
     names = {n: v["bits"] for n, v in mod.get("netnames", {}).items()
              if not v.get("hide_name") and not n.startswith("$")}
@@ -143,6 +149,7 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
     page = TEMPLATE.read_text(encoding="utf-8")
     top_label = first["modules"][first["top"]]["label"]
     page = page.replace(TITLE_PLACEHOLDER, _html_escape(title or top_label))
+    page = page.replace(SIM_PLACEHOLDER, SIM_JS.read_text(encoding="utf-8").replace("</", "<\\/"), 1)
     page = page.replace(DATA_PLACEHOLDER, payload)
     out_html.parent.mkdir(parents=True, exist_ok=True)
     out_html.write_text(page, encoding="utf-8")

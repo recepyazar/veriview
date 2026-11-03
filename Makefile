@@ -1,12 +1,13 @@
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 VV := ./veriview.sh -q
 
-.PHONY: help dev test lint examples clean
+.PHONY: help dev test lint dist examples clean
 
 help:
 	@echo "make dev       - create .venv and install VeriView in editable mode with dev tools"
 	@echo "make test      - run the test suite (pytest)"
 	@echo "make lint      - run ruff"
+	@echo "make dist      - build sdist + wheel into dist/ and check them (twine)"
 	@echo "make examples  - regenerate results/*.svg from ex_design/"
 
 dev:
@@ -18,6 +19,11 @@ test:
 
 lint:
 	$(PYTHON) -m ruff check src tests
+
+dist:
+	rm -rf dist
+	uv build
+	uvx twine check --strict dist/*
 
 examples:
 	$(VV) ex_design/counter.sv          -o results/counter.svg

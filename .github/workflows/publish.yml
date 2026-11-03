@@ -1,0 +1,77 @@
+name: Publish
+
+# PyPI "Trusted Publishing": no API token is stored anywhere. PyPI trusts this
+# workflow (repo + file name + environment) once it is registered as a trusted
+# publisher on pypi.org / test.pypi.org. See ROADMAP.md, "Releasing".
+on:
+  release:
+    types: [published]          # GitHub release vX.Y.Z  -> PyPI
+  workflow_dispatch:            # manual run             -> TestPyPI (or PyPI)
+    inputs:
+      target:
+        description: "Where to upload"
+        type: choice
+        options: [testpypi, pypi]
+        default: testpypi
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Check that the release tag matches the package version
+        if: github.event_name == 'release'
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/veriview/__init__.py)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not match __version__ $version (expected v$version)"
+            exit 1
+          fi
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Check metadata / README rendering
+        run: uvx twine check --strict dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    runs-on: ubuntu-24.04
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/veriview/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    needs: build
+    if: github.event_name == 'release' || inputs.target == 'pypi'
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/veriview/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

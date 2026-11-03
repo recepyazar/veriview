@@ -330,6 +330,8 @@ Code layout (`src/veriview/`):
 
 CI runs lint and tests on Python 3.9 and 3.13 for every push and pull request.
 
+See [ROADMAP.md](ROADMAP.md) for planned features and the release process, and [CHANGELOG.md](CHANGELOG.md) for what changed.
+
 ## Troubleshooting
 
 - **`syntax error` on valid SystemVerilog** – Yosys' built-in parser supports only part of SystemVerilog. Install sv2v (`veriview --install-deps`) or yosys-slang.

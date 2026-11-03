@@ -203,3 +203,14 @@ def test_stage_commands():
     assert "flatten" in stage_commands("elab", True)
     assert any(c.startswith("setattr -set keep") for c in stage_commands("elab", False))
     assert any(c.startswith("abc -g") for c in stage_commands("gate", False))
+
+
+def test_old_yosys_compat():
+    from veriview.html import display_name
+    from veriview.synth import yosys_path_arg
+    # Yosys 0.33 does not unquote option values such as `tee -o`
+    assert yosys_path_arg("/tmp/vv/modules.txt") == "/tmp/vv/modules.txt"
+    assert yosys_path_arg("/tmp/a b/modules.txt") == '"/tmp/a b/modules.txt"'
+    # ... and stores hdlname with a leading backslash
+    name = "$paramod\\b2g\\WIDTH=s32'00000000000000000000000000000011"
+    assert display_name(name, {"hdlname": "\\b2g"}) == "b2g (WIDTH=3)"

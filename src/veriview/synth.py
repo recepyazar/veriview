@@ -29,6 +29,12 @@ def yosys_quote(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def yosys_path_arg(s: str) -> str:
+    """Path for option values: older Yosys (e.g. 0.33) does not unquote them, so
+    quote only when needed (paths with whitespace)."""
+    return yosys_quote(s) if re.search(r"\s", s) else s
+
+
 # sv2v lowers elaboration-time $error/$warning to `initial $display(...)`, which
 # Yosys ignores. Turn them back so parameter checks still stop synthesis.
 _SV2V_ELAB = [
@@ -218,7 +224,7 @@ class Synthesizer:
         out = self.work_dir / "modules.txt"
 
         def action(fe: str) -> list[str]:
-            script = self._read_commands(fe, None) + [f"tee -q -o {yosys_quote(str(out))} ls"]
+            script = self._read_commands(fe, None) + [f"tee -q -o {yosys_path_arg(str(out))} ls"]
             self._yosys(fe, script, "list.ys")
             names = set()
             for line in out.read_text().splitlines():

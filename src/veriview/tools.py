@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import os
 import platform
+import re
 import shutil
 import stat
 import subprocess
@@ -40,6 +41,28 @@ def slang_available(yosys: str) -> bool:
         return r.returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
+
+
+MIN_YOSYS = (0, 40)
+
+
+def yosys_version(yosys: str) -> tuple[int, int] | None:
+    try:
+        out = subprocess.run([yosys, "-V"], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"Yosys (\d+)\.(\d+)", out)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def warn_if_old_yosys() -> None:
+    yosys = find_tool("yosys")
+    ver = yosys_version(yosys) if yosys else None
+    if ver and ver < MIN_YOSYS:
+        log.warn(
+            f"Yosys {ver[0]}.{ver[1]} is old; some features (e.g. --cone with --flatten) may fail. "
+            "Install a recent build, e.g. the OSS CAD Suite: https://github.com/YosysHQ/oss-cad-suite-build"
+        )
 
 
 # --- Installation -------------------------------------------------------------

@@ -16,7 +16,7 @@ from .log import VeriViewError
 from .render import open_path, render
 from .scope import find_top, postprocess, reroot, resolve_instance
 from .synth import FRONTENDS, STAGES, TOP_RE, Synthesizer
-from .tools import ensure_dependencies
+from .tools import ensure_dependencies, warn_if_old_yosys
 from .watch import BuildResult, watch
 
 HDL_SUFFIXES = (".v", ".sv", ".svh", ".vh", ".f")
@@ -180,6 +180,7 @@ def run(argv: list[str] | None = None) -> int:
             log.info("Dependencies are installed.")
             return 0
         raise VeriViewError("No input file provided. Try 'veriview --help'.")
+    warn_if_old_yosys()
 
     if args.watch:
         return watch(lambda: _build(args, inputs, html_stages), args=args, inputs=inputs)

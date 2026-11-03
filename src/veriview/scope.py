@@ -90,7 +90,7 @@ def module_depths(modules: dict[str, Any], root: str) -> dict[str, int]:
 def _base_name(name: str, mod: dict[str, Any]) -> str:
     hdl = mod.get("attributes", {}).get("hdlname")
     if hdl:
-        return hdl
+        return hdl.lstrip("\\")  # older Yosys: '\\name'
     m = re.match(r"^\$paramod(?:\$[0-9a-fA-F]+)?\\([^\\]+)", name)
     return m.group(1) if m else name
 

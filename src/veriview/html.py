@@ -47,7 +47,8 @@ def display_name(module: str, attrs: dict[str, Any] | None = None) -> str:
     m = _PARAMOD_RE.match(module)
     if not m:
         return module
-    base = (attrs or {}).get("hdlname") or m.group(1)
+    # older Yosys versions store hdlname with a leading backslash
+    base = ((attrs or {}).get("hdlname") or m.group(1)).lstrip("\\")
     params = []
     for p in (m.group(2) or "").split("\\"):
         if p:

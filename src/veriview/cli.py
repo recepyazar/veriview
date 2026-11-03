@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -13,8 +14,10 @@ from .filelist import collect_sources
 from .html import build_viewer
 from .log import VeriViewError
 from .render import open_path, render
-from .synth import FRONTENDS, TOP_RE, Synthesizer
+from .scope import find_top, postprocess, reroot, resolve_instance
+from .synth import FRONTENDS, STAGES, TOP_RE, Synthesizer
 from .tools import ensure_dependencies
+from .watch import BuildResult, watch
 
 HDL_SUFFIXES = (".v", ".sv", ".svh", ".vh", ".f")
 
@@ -30,6 +33,8 @@ examples:
   veriview design.f -t cpu_core -o build/cpu.svg
   veriview rtl/*.sv -I rtl/include -D SYNTH --flatten --open
   veriview design.f -t cpu_core --html --open      # interactive hierarchy viewer
+  veriview design.f --select u_core/u_alu --depth 1 # one sub-block, one level expanded
+  veriview design.f --cone o_valid                  # only the logic driving o_valid
 """
 
 
@@ -50,16 +55,32 @@ def build_parser() -> argparse.ArgumentParser:
                    help="include directory (repeatable)")
     p.add_argument("-D", "--define", dest="defines", action="append", default=[], metavar="N[=V]",
                    help="preprocessor define (repeatable)")
+    p.add_argument("--stage", choices=STAGES, default="opt",
+                   help="what to draw: elab = RTL as written (nothing removed), opt = optimized RTL (default), "
+                        "gate = synthesized gates and flip-flops")
     p.add_argument("--flatten", action="store_true", help="flatten hierarchy (expand sub-modules)")
+    p.add_argument("--select", metavar="INST/PATH",
+                   help="draw only this sub-instance (e.g. u_core/u_alu), with its actual parameters")
+    p.add_argument("--depth", type=int, metavar="N",
+                   help="expand N levels of hierarchy below the top; deeper sub-modules stay boxes")
+    p.add_argument("--cone", action="append", default=[], metavar="SIGNAL",
+                   help="draw only the logic driving SIGNAL, stopping at registers (repeatable)")
     p.add_argument("--split", action="store_true", help="render every module to its own SVG")
     p.add_argument("--html", action="store_true",
-                   help="write an interactive HTML viewer: click sub-modules to navigate the hierarchy")
+                   help="write an interactive HTML viewer (hierarchy navigation, stage/flatten switches, "
+                        "cone highlighting)")
+    p.add_argument("--html-stages", default=",".join(STAGES), metavar="LIST",
+                   help="stages embedded in the HTML viewer (default: elab,opt,gate; --stage is shown first)")
     p.add_argument("--frontend", choices=FRONTENDS, default="auto",
                    help="SystemVerilog frontend (default: auto = yosys, falling back to slang/sv2v)")
     p.add_argument("--skin", type=Path, help="custom netlistsvg skin")
     p.add_argument("--bg", default="white", metavar="COLOR|none", help="background color (default: white)")
     p.add_argument("--keep-json", action="store_true", help="keep the Yosys JSON netlist next to the SVG")
     p.add_argument("--open", action="store_true", help="open the result")
+    p.add_argument("--watch", action="store_true",
+                   help="rebuild whenever a source file changes; with --html, serve the viewer on a local "
+                        "web server that reloads automatically")
+    p.add_argument("--port", type=int, default=8765, help="port for --watch --html (default: 8765)")
     p.add_argument("--install-deps", action="store_true",
                    help="install missing dependencies (yosys, node, netlistsvg, sv2v)")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation when installing")
@@ -81,14 +102,47 @@ def _split_positionals(args: argparse.Namespace, parser: argparse.ArgumentParser
     return inputs + args.filelists
 
 
-def _output_path(args: argparse.Namespace, inputs: list[str], suffix: str) -> Path:
-    stem = args.top or Path(inputs[0]).stem
+def _output_path(args: argparse.Namespace, inputs: list[str], suffix: str, stem: str | None = None) -> Path:
+    stem = stem or args.top or Path(inputs[0]).stem
     if args.output:
         out = Path(args.output)
         if args.output.endswith(("/", "\\")) or out.is_dir():
             return out / f"{stem}{suffix}"
         return out
     return Path(f"{stem}{suffix}")
+
+
+def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, work: Path,
+              stages: list[str]) -> Path:
+    stage_netlists = {}
+    stem = None
+    for st in stages:
+        json_path = work / f"netlist_{st}.json"
+        log.info(f"Running synthesis ({st})...")
+        synth.synthesize(args.top, json_path, stage=st)
+        netlist = json.loads(json_path.read_text(encoding="utf-8"))
+        root = find_top(netlist["modules"])
+        if args.select:
+            try:
+                root, insts = resolve_instance(netlist["modules"], root, args.select)
+            except VeriViewError as e:
+                if st == args.stage:
+                    raise
+                log.warn(f"Stage '{st}' skipped: {e}")
+                continue
+            stem = re.sub(r"[^\w.-]+", "_", insts[-1])
+        netlist, root = reroot(netlist, root)
+        stage_netlists[st] = netlist
+        if args.keep_json:
+            json_path.write_text(json.dumps(netlist), encoding="utf-8")
+
+    out = _output_path(args, inputs, ".html", stem)
+    build_viewer(stage_netlists, out, work, yosys=synth.yosys, skin=args.skin,
+                 default_stage=args.stage, default_flat=args.flatten)
+    if args.keep_json:
+        for st in stage_netlists:
+            shutil.copyfile(work / f"netlist_{st}.json", out.with_name(f"{out.stem}.{st}.json"))
+    return out
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -103,6 +157,21 @@ def run(argv: list[str] | None = None) -> int:
         raise VeriViewError(f"Skin file not found: {args.skin}")
     if args.html and args.split:
         raise VeriViewError("--html and --split cannot be combined (the HTML viewer already contains every module).")
+    if args.split and (args.select or args.depth is not None or args.cone):
+        raise VeriViewError("--split cannot be combined with --select, --depth or --cone.")
+    if args.flatten and args.depth is not None:
+        raise VeriViewError("--flatten and --depth cannot be combined (--flatten expands every level).")
+    if args.depth is not None and args.depth < 0:
+        raise VeriViewError("--depth must be >= 0.")
+    if args.html and (args.depth is not None or args.cone):
+        raise VeriViewError("--depth and --cone are interactive in the HTML viewer "
+                            "(navigate into sub-modules, click a net to highlight its cone).")
+    html_stages = [s.strip() for s in args.html_stages.split(",") if s.strip()]
+    bad = [s for s in html_stages if s not in STAGES]
+    if bad or not html_stages:
+        raise VeriViewError(f"Invalid --html-stages: {args.html_stages} (choose from {', '.join(STAGES)})")
+    if args.stage not in html_stages:
+        html_stages.insert(0, args.stage)
 
     ensure_dependencies(install=args.install_deps, assume_yes=args.yes,
                         want_sv2v=args.install_deps or args.frontend == "sv2v")
@@ -112,11 +181,25 @@ def run(argv: list[str] | None = None) -> int:
             return 0
         raise VeriViewError("No input file provided. Try 'veriview --help'.")
 
+    if args.watch:
+        return watch(lambda: _build(args, inputs, html_stages), args=args, inputs=inputs)
+
+    status, out, _ = _build(args, inputs, html_stages)
+    if args.open and out is not None:
+        open_path(out)
+    return status
+
+
+def _build(args: argparse.Namespace, inputs: list[str], html_stages: list[str]) -> BuildResult:
+    """One complete run: returns (exit status, output path, sources)."""
     sources = collect_sources(inputs, args.incdirs, args.defines)
 
     with tempfile.TemporaryDirectory(prefix="veriview.") as tmp:
         work = Path(tmp).resolve()
-        synth = Synthesizer(sources, work, frontend=args.frontend, flatten=args.flatten)
+        # --split flattens per module during synthesis; otherwise the hierarchical
+        # netlist is narrowed/flattened afterwards (see scope.py).
+        synth = Synthesizer(sources, work, frontend=args.frontend,
+                            flatten=args.flatten and args.split, stage=args.stage)
         render_opts = dict(skin=args.skin, bg=args.bg, keep_json=args.keep_json)
 
         if args.split:
@@ -134,30 +217,31 @@ def run(argv: list[str] | None = None) -> int:
                 except VeriViewError as e:
                     log.error(f"Module '{m}': {e}")
                     status = 1
-            if args.open:
-                open_path(out_dir)
-            return status
+            return status, out_dir, sources
+
+        if args.html:
+            return 0, _run_html(args, inputs, synth, work, html_stages), sources
 
         json_path = work / "netlist.json"
         log.info("Running synthesis...")
         synth.synthesize(args.top, json_path)
 
-        if args.html:
-            out = _output_path(args, inputs, ".html")
-            netlist = json.loads(json_path.read_text(encoding="utf-8"))
-            build_viewer(netlist, out, work, skin=args.skin)
-            if args.keep_json:
-                shutil.copyfile(json_path, out.with_suffix(".json"))
-            if args.open:
-                open_path(out)
-            return 0
+        netlist = json.loads(json_path.read_text(encoding="utf-8"))
+        root = find_top(netlist["modules"])
+        stem = None
+        if args.select:
+            root, insts = resolve_instance(netlist["modules"], root, args.select)
+            stem = re.sub(r"[^\w.-]+", "_", insts[-1])
+            log.info(f"Selected instance: {'/'.join(insts)}")
+        netlist, root = reroot(netlist, root, keep_below=args.depth)
+        netlist = postprocess(synth.yosys, work, netlist, root,
+                              flatten=args.flatten or args.depth is not None, cones=args.cone)
+        json_path.write_text(json.dumps(netlist), encoding="utf-8")
 
-        svg = _output_path(args, inputs, ".svg")
+        svg = _output_path(args, inputs, ".svg", stem)
         log.info(f"Generating schematic -> {svg}")
         render(json_path, svg, **render_opts)
-        if args.open:
-            open_path(svg)
-    return 0
+    return 0, svg, sources
 
 
 def main(argv: list[str] | None = None) -> int:

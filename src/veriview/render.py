@@ -55,6 +55,19 @@ def _is_wsl() -> bool:
         return False
 
 
+def open_url(url: str) -> None:
+    """Open a URL in the default browser (Windows' browser on WSL)."""
+    try:
+        if _is_wsl() and shutil.which("cmd.exe"):
+            subprocess.run(["cmd.exe", "/c", "start", "", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        import webbrowser
+        if not webbrowser.open(url):
+            log.warn(f"Open {url} in your browser.")
+    except OSError as e:
+        log.warn(f"Could not open {url}: {e}")
+
+
 def open_path(path: Path) -> None:
     try:
         if sys.platform == "win32":

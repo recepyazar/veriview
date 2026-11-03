@@ -12,8 +12,11 @@ It wraps **Yosys** and **netlistsvg** (plus, optionally, **sv2v** or **yosys-sla
 - **Full SystemVerilog via fallback frontends** – if Yosys' built-in parser can't handle a construct (e.g. unpacked array ports), VeriView automatically retries with [yosys-slang](https://github.com/povik/yosys-slang) or [sv2v](https://github.com/zachjs/sv2v).
 - **File lists (`.f`)** – `+incdir+`, `+define+`, nested `-f`/`-F`, `-v`, `$VAR`/`${VAR}`/`$(VAR)` and comments.
 - **Include dirs & defines** – `-I` and `-D` on the command line.
-- **Interactive HTML viewer** – `--html` writes a single self-contained page: click a sub-module to open it, navigate with a hierarchy tree and breadcrumbs, zoom and pan, light/dark theme.
+- **Interactive HTML viewer** – `--html` writes a single self-contained page: click into sub-modules, switch between RTL / optimized / gate views, flatten any module, and click a net to highlight its fan-in or fan-out cone.
 - **Hierarchy control** – keep sub-modules as boxes or `--flatten` them; `--split` renders one SVG per module.
+- **Live mode** – `--watch` rebuilds on every save; with `--html` the viewer is served locally and the browser refreshes by itself.
+- **Focus on what matters** – `--select` a sub-instance, expand only `--depth N` levels, or draw just the `--cone` of logic driving a signal.
+- **Three views** – `--stage elab` (RTL as written), `opt` (optimized RTL, default) or `gate` (synthesized gates).
 - **Dark-mode friendly** – injects a background (`--bg white` by default, `--bg none` to disable).
 - **Open the result** – `--open` uses `xdg-open`, macOS `open`, or Windows Explorer on WSL.
 - **Optional dependency installer** – `--install-deps` installs Yosys, Node.js, netlistsvg and sv2v.
@@ -74,14 +77,21 @@ veriview [options] <input>... [top_module]
 | `-f`, `-F <file.f>` | Read a file list. |
 | `-I`, `--incdir <dir>` | Add an include directory (repeatable). |
 | `-D`, `--define <N[=V]>` | Add a preprocessor define (repeatable). |
+| `--stage <elab\|opt\|gate>` | What to draw: RTL as written, optimized RTL (default) or gate level. See [Views](#views-elab--opt--gate). |
 | `--flatten` | Flatten the hierarchy (expand sub-modules). |
+| `--select <inst/path>` | Draw only this sub-instance, with its actual parameters (e.g. `u_core/u_alu`). |
+| `--depth <N>` | Expand N levels of hierarchy below the top; deeper sub-modules stay boxes. |
+| `--cone <signal>` | Draw only the logic driving `signal`, stopping at registers (repeatable). |
 | `--split` | Render every module into its own SVG. |
 | `--html` | Write an interactive HTML viewer instead of an SVG (default output: `<top>.html`). |
+| `--html-stages <list>` | Views embedded in the HTML viewer (default `elab,opt,gate`; `--stage` is shown first). |
 | `--frontend <name>` | `auto` (default), `yosys`, `sv2v` or `slang`. |
 | `--skin <file.svg>` | Custom [netlistsvg skin](https://github.com/nturley/netlistsvg#skins). |
 | `--bg <color\|none>` | Background color (default `white`). |
 | `--keep-json` | Keep the Yosys JSON netlist next to the SVG. |
 | `--open` | Open the generated SVG. |
+| `--watch` | Rebuild whenever a source file changes (Ctrl+C to stop). With `--html`, serves the viewer at `http://127.0.0.1:8765/` and reloads the browser automatically. |
+| `--port <N>` | Port for `--watch --html` (default 8765; the next free port is used if busy). |
 | `--install-deps` | Install missing dependencies. |
 | `-y`, `--yes` | Don't ask for confirmation when installing. |
 | `-q`, `--quiet` | Only print warnings and errors. |
@@ -101,13 +111,54 @@ veriview ex_design/rca/rca.f --html --open
 
 <img src="./docs/viewer.png" alt="VeriView HTML viewer" width="800"/>
 
-The output is one HTML file with every module of the design embedded (no internet connection or server needed), so it can be shared or attached as-is.
+The output is one HTML file with every module of the design embedded (no internet connection or server needed), so it can be shared or attached as-is. All views are pre-rendered, so every control below works instantly in the browser:
 
-- **Click** a highlighted sub-module box (or a node in the tree) to open it; **breadcrumbs** and **↑ Up** / `Backspace` go back up.
-- **Mouse wheel** zooms around the cursor, **drag** pans, **Fit** / `F` fits the schematic to the window.
-- The current position is kept in the URL (`rca.html#/fa_block[3].fa_inst`), so the browser's back button works and links point to a specific instance.
-- Parameterized modules are shown with their parameters, e.g. `b2g (WIDTH=3)`.
-- **SVG** downloads the schematic that is currently shown.
+- **Navigate:** click a highlighted sub-module box (or a node in the tree) to open it; **breadcrumbs** and **↑ Up** / `Backspace` go back up. Parameterized modules are labeled with their parameters, e.g. `b2g (WIDTH=3)`.
+- **View: RTL / Optimized / Gates** switches between the `elab`, `opt` and `gate` [stages](#views-elab--opt--gate). If the current instance was optimized away in the new view, the viewer says so and shows its nearest parent.
+- **Flatten** expands every sub-module of the current module in place.
+- **Cones:** click a net to highlight its **fan-in** cone (the logic driving it), **Shift-click** for its **fan-out**, or pick the mode in the toolbar. Clicking a port or a cell works too, and the **Highlight signal…** box finds any named signal. Cones stop at registers (which are still highlighted); buses that only partly belong to a cone are dashed; `Esc` clears. In the hierarchical view a sub-module box is treated as a whole (every input may affect every output) — flatten for an exact cone.
+- **Mouse wheel** zooms around the cursor, **drag** pans, **Fit** / `F` fits the schematic to the window, **SVG** downloads the current view.
+- The current position and view are kept in the URL (`rca.html#/fa_block[3].fa_inst?stage=gate&flat=1`), so the back button works and links point to a specific view.
+
+Rendering every view takes longer for big designs; use `--html-stages opt` to embed only one view.
+
+### Live mode (`--watch`)
+
+```bash
+veriview ex_design/rca/rca.f --html --watch --open
+```
+
+VeriView keeps running and rebuilds whenever a source file, a `.f` file list or a file in an include directory changes:
+
+- With `--html`, the viewer is served on a local web server (`http://127.0.0.1:8765/`, only reachable from your machine) and the **browser reloads by itself** after each rebuild — staying on the same instance, view and flatten state.
+- If a rebuild fails (e.g. a syntax error while you type), the page keeps the last good schematic and shows the error in a red banner until the file is fixed.
+- Without `--html`, the SVG file is simply rewritten (most SVG viewers and editor previews refresh on their own).
+
+Use `--html-stages opt` to make rebuilds of large designs faster.
+
+### Views: elab / opt / gate
+
+| `--stage` | Shows | Typical use |
+| :--- | :--- | :--- |
+| `elab` | The elaborated RTL exactly as written. Nothing is optimized away: unused instances and logic that drives nothing stay visible. | Reviewing/teaching the structure of the code |
+| `opt` *(default)* | Coarse-grain optimized RTL: logic that doesn't affect any output is removed, identical logic is merged. | "What does this really do?" |
+| `gate` | Full synthesis to simple gates (AND/OR/XOR/MUX/…) and flip-flops. | Seeing the actual logic cost |
+
+Note that with `opt` and `gate`, Yosys may remove whole sub-module instances whose outputs are unused, and after `--flatten` merged duplicate logic keeps only one of the original names. Use `--stage elab` to see the design as written.
+
+### Focusing on part of a design
+
+Large designs quickly become unreadable when drawn in one piece. These options narrow the view of an SVG (`--select` also works with `--html`; depth and cones are interactive there):
+
+```bash
+veriview cpu.f --select u_core/u_alu          # just one sub-instance (with its real parameters)
+veriview cpu.f --select u_core --depth 1      # u_core with one level of sub-modules expanded
+veriview cpu.f --flatten --cone o_valid       # only the logic that drives o_valid
+```
+
+- `--select` accepts `/` or `.` as separator; instance names containing dots (e.g. generate blocks like `fa_block[3].fa_inst`) work as-is.
+- `--depth 0` is the default hierarchical view; `--flatten` is "infinite depth".
+- `--cone` follows the logic backwards from the signal and stops at registers/latches (which are still drawn as the boundary). Everything else is removed from the drawing only — the design itself is unchanged.
 
 ### SystemVerilog frontends
 
@@ -244,6 +295,8 @@ Code layout (`src/veriview/`):
 | `synth.py` | Yosys scripts, frontend fallback (yosys → slang → sv2v) |
 | `render.py` | netlistsvg, SVG post-processing, `--open` |
 | `html.py`, `viewer.html` | interactive HTML viewer (`--html`) |
+| `scope.py` | `--select`, `--depth`, `--cone` (operating on the JSON netlist) |
+| `watch.py` | `--watch`: file polling, local live-reload server |
 | `tools.py` | finding/installing yosys, netlistsvg, sv2v |
 
 CI runs lint and tests on Python 3.9 and 3.13 for every push and pull request.

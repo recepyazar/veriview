@@ -1,9 +1,11 @@
 """Interactive, self-contained HTML viewer with hierarchy navigation.
 
-Every module of a hierarchical Yosys netlist is rendered to its own SVG with
-netlistsvg; the SVGs plus the instance -> module map are embedded into a single
-HTML file (no network access needed) where clicking a sub-module instance opens
-that module's schematic.
+For every requested view stage (elab / opt / gate) each module of the
+hierarchical netlist is rendered to SVG -- plus a flattened variant for modules
+that contain sub-modules -- and embedded together with a slim connectivity
+netlist into a single HTML file. In the browser the user can switch stages,
+toggle flattening, navigate into sub-modules and highlight logic cones, all
+without a server or network access.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from typing import Any
 
 from . import __version__, log
 from .render import run_netlistsvg
+from .scope import TOP_ATTR, find_top, postprocess, reroot, user_children
 
 TEMPLATE = Path(__file__).with_name("viewer.html")
 DATA_PLACEHOLDER = "/*__VERIVIEW_DATA__*/null"
@@ -53,67 +56,92 @@ def display_name(module: str, attrs: dict[str, Any] | None = None) -> str:
     return f"{base} ({', '.join(params)})" if params else base
 
 
-def _is_set(value: Any) -> bool:
-    if isinstance(value, str):
-        try:
-            return int(value, 2) != 0
-        except ValueError:
-            return value not in ("", "0")
-    return bool(value)
+def slim_netlist(mod: dict[str, Any]) -> dict[str, Any]:
+    """Connectivity needed for cone highlighting in the browser."""
+    cells = {}
+    for name, cell in mod.get("cells", {}).items():
+        dirs = cell.get("port_directions", {})
+        cells[name] = [cell.get("type", ""),
+                       {p: [dirs.get(p, ""), bits] for p, bits in cell.get("connections", {}).items()}]
+    ports = {name: [p.get("direction", ""), p.get("bits", [])] for name, p in mod.get("ports", {}).items()}
+    names = {n: v["bits"] for n, v in mod.get("netnames", {}).items()
+             if not v.get("hide_name") and not n.startswith("$")}
+    return {"cells": cells, "ports": ports, "names": names}
 
 
-def find_top(modules: dict[str, Any]) -> str:
-    for name, mod in modules.items():
-        if _is_set(mod.get("attributes", {}).get("top", 0)):
-            return name
-    return next(iter(modules))
+def _single_module(netlist: dict[str, Any], name: str, mod: dict[str, Any]) -> dict[str, Any]:
+    mod = dict(mod)
+    mod["attributes"] = {**mod.get("attributes", {}), "top": TOP_ATTR}
+    return {"creator": netlist.get("creator", ""), "modules": {name: mod}}
 
 
-def build_viewer(netlist: dict[str, Any], out_html: Path, work_dir: Path,
-                 skin: Path | None = None, title: str | None = None) -> None:
-    modules: dict[str, Any] = netlist.get("modules", {})
-    if not modules:
-        raise ValueError("netlist contains no modules")
-    top = find_top(modules)
-    names = list(modules)
+def strip_xml_decl(svg: str) -> str:
+    return re.sub(r"^\s*<\?xml[^>]*\?>\s*", "", svg)
 
-    def render_one(idx: int) -> str:
-        name = names[idx]
-        mod = dict(modules[name])
-        mod["attributes"] = {**mod.get("attributes", {}), "top": "00000000000000000000000000000001"}
-        single = {"creator": netlist.get("creator", ""), "modules": {name: mod}}
-        jpath = work_dir / f"html_m{idx}.json"
+
+def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work_dir: Path, *,
+                 yosys: str, skin: Path | None = None, title: str | None = None,
+                 default_stage: str | None = None, default_flat: bool = False) -> None:
+    """Write the viewer. `stage_netlists` maps stage name -> hierarchical Yosys JSON netlist."""
+    if not stage_netlists:
+        raise ValueError("no netlists")
+    stages = list(stage_netlists)
+
+    # Jobs: (stage, module, flat?) -> (svg, slim netlist)
+    jobs: list[tuple[str, str, bool]] = []
+    for st, net in stage_netlists.items():
+        for name in net["modules"]:
+            jobs.append((st, name, False))
+            if user_children(net["modules"], name):
+                jobs.append((st, name, True))
+
+    def run(idx: int) -> tuple[str, dict[str, Any]]:
+        st, name, flat = jobs[idx]
+        net = stage_netlists[st]
+        mod = net["modules"][name]
+        if flat:
+            sub, root = reroot(net, name)
+            sub = postprocess(yosys, work_dir, sub, root, flatten=True, cones=[], tag=f"flat{idx}")
+            single = _single_module(sub, root, sub["modules"][root])
+            mod = sub["modules"][root]
+        else:
+            single = _single_module(net, name, mod)
+        jpath = work_dir / f"view{idx}.json"
         jpath.write_text(json.dumps(single))
-        return run_netlistsvg(jpath, work_dir / f"html_m{idx}.svg", skin)
+        svg = run_netlistsvg(jpath, work_dir / f"view{idx}.svg", skin)
+        return strip_xml_decl(svg), slim_netlist(mod)
 
-    log.info(f"Rendering {len(names)} module(s)...")
-    workers = max(1, min(8, os.cpu_count() or 1, len(names)))
+    log.info(f"Rendering {len(jobs)} view(s) for stage(s): {', '.join(stages)}...")
+    workers = max(1, min(8, os.cpu_count() or 1, len(jobs)))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        svgs = list(pool.map(render_one, range(len(names))))
+        results = list(pool.map(run, range(len(jobs))))
 
+    views: dict[str, Any] = {}
+    for (st, name, flat), (svg, slim) in zip(jobs, results):
+        net = stage_netlists[st]
+        mod = net["modules"][name]
+        view = views.setdefault(st, {"top": find_top(net["modules"]), "modules": {}})
+        entry = view["modules"].setdefault(name, {
+            "label": display_name(name, mod.get("attributes")),
+            "src": mod.get("attributes", {}).get("src", ""),
+            "children": user_children(net["modules"], name),
+        })
+        entry["flat" if flat else "hier"] = {"svg": svg, "net": slim, "cells": len(slim["cells"])}
+
+    first = views[stages[0]]
     data = {
         "version": __version__,
-        "top": top,
-        "modules": {
-            name: {
-                "label": display_name(name, mod.get("attributes")),
-                "src": mod.get("attributes", {}).get("src", ""),
-                "cells": len(mod.get("cells", {})),
-                "ports": len(mod.get("ports", {})),
-                # instance name -> module name, only for user modules (navigable)
-                "children": {
-                    cell: info["type"] for cell, info in mod.get("cells", {}).items() if info.get("type") in modules
-                },
-                "svg": re.sub(r"^\s*<\?xml[^>]*\?>\s*", "", svg),
-            }
-            for name, mod, svg in zip(names, modules.values(), svgs)
-        },
+        "stages": stages,
+        "defaultStage": default_stage if default_stage in views else stages[0],
+        "defaultFlat": default_flat,
+        "views": views,
     }
     # '<' only occurs inside JSON strings, so escaping it keeps </script> and
     # <!-- in SVG text from ending/confusing the inline <script>.
     payload = json.dumps(data, separators=(",", ":")).replace("<", "\\u003c")
     page = TEMPLATE.read_text(encoding="utf-8")
-    page = page.replace(TITLE_PLACEHOLDER, _html_escape(title or display_name(top)))
+    top_label = first["modules"][first["top"]]["label"]
+    page = page.replace(TITLE_PLACEHOLDER, _html_escape(title or top_label))
     page = page.replace(DATA_PLACEHOLDER, payload)
     out_html.parent.mkdir(parents=True, exist_ok=True)
     out_html.write_text(page, encoding="utf-8")

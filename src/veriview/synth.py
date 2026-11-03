@@ -43,17 +43,48 @@ def fix_sv2v_output(text: str) -> str:
     return text
 
 
+STAGES = ("elab", "opt", "gate")
+# Gate set for --stage gate: all of these have netlistsvg symbols.
+GATE_SET = "AND,NAND,OR,NOR,XOR,XNOR,MUX"
+
+
+def stage_commands(stage: str, flatten: bool) -> list[str]:
+    """Yosys commands after `hierarchy` for the given view stage.
+
+    elab: elaborated RTL as written; every cell gets `keep` so nothing is
+          optimized away or merged (unused instances/logic stay visible).
+    opt:  coarse-grain optimized RTL (unused logic removed, duplicates merged).
+    gate: full synthesis to simple gates and flip-flops.
+    """
+    cmds = ["proc"]
+    if flatten:
+        cmds.append("flatten")
+    if stage == "elab":
+        cmds += ["setattr -set keep 1 */c:* */t:$scopeinfo %d", "opt_clean -purge"]
+    elif stage == "opt":
+        cmds += ["opt", "opt_clean -purge"]
+    elif stage == "gate":
+        cmds += ["synth -run coarse:fine", "memory_map", "techmap", "opt -fast",
+                 f"abc -g {GATE_SET}", "opt_clean -purge"]
+    else:
+        raise ValueError(stage)
+    return cmds
+
+
 class Synthesizer:
-    def __init__(self, sources: SourceSet, work_dir: Path, frontend: str = "auto", flatten: bool = False):
+    def __init__(self, sources: SourceSet, work_dir: Path, frontend: str = "auto", flatten: bool = False,
+                 stage: str = "opt"):
         self.sources = sources
         self.work_dir = work_dir
         self.frontend = frontend
         self.flatten = flatten
+        self.stage = stage
         self.yosys = find_tool("yosys") or "yosys"
         self._sv2v_out: Path | None = None
         self._incdir_links: list[str] | None = None
         self.selected: str | None = None
         self.last_error = ""
+        self.errors: dict[str, str] = {}
 
     # --- frontend plumbing ----------------------------------------------------
 
@@ -132,11 +163,13 @@ class Synthesizer:
                 return action(self.selected)
             except FrontendError as e:
                 raise VeriViewError(f"Synthesis failed.\n{e}") from e
+        self.errors: dict[str, str] = {}
         for fe in self.candidates():
             try:
                 result = action(fe)
             except FrontendError as e:
                 self.last_error = str(e)
+                self.errors[fe] = self.last_error
                 if _DESIGN_ERROR_RE.search(self.last_error):
                     break  # not a parser limitation; another frontend won't help
                 first = self.last_error.splitlines()[0] if self.last_error else ""
@@ -150,12 +183,16 @@ class Synthesizer:
 
     def _failure(self) -> VeriViewError:
         msg = "Synthesis failed."
-        if self.last_error:
+        errors = self.errors
+        if len(errors) > 1:
+            # Yosys' own message first: it is usually the most familiar one
+            msg += "".join(f"\n[{fe}] {err}" for fe, err in errors.items())
+        elif self.last_error:
             msg += "\n" + self.last_error
         if (
             self.frontend == "auto"
             and self.sources.has_systemverilog
-            and "syntax error" in self.last_error
+            and "syntax error" in errors.get("yosys", self.last_error)
             and not find_tool("sv2v")
             and not slang_available(self.yosys)
         ):
@@ -167,15 +204,13 @@ class Synthesizer:
 
     # --- public API -----------------------------------------------------------
 
-    def synthesize(self, top: str | None, json_out: Path) -> None:
+    def synthesize(self, top: str | None, json_out: Path, stage: str | None = None) -> None:
         def action(fe: str) -> None:
             script = self._read_commands(fe, top)
             script.append(f"hierarchy -check -top {top}" if top else "hierarchy -check -auto-top")
-            script.append("proc")
-            if self.flatten:
-                script.append("flatten")
-            script += ["opt", "opt_clean -purge", f"write_json {yosys_quote(str(json_out))}"]
-            self._yosys(fe, script, "synth.ys")
+            script += stage_commands(stage or self.stage, self.flatten)
+            script.append(f"write_json {yosys_quote(str(json_out))}")
+            self._yosys(fe, script, f"synth_{stage or self.stage}.ys")
 
         self._with_frontend(action)
 

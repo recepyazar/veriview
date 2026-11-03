@@ -23,6 +23,7 @@ class SourceSet:
     files: list[Path] = field(default_factory=list)
     incdirs: list[Path] = field(default_factory=list)
     defines: list[str] = field(default_factory=list)
+    filelists: list[Path] = field(default_factory=list)
 
     @property
     def has_systemverilog(self) -> bool:
@@ -66,6 +67,7 @@ def parse_filelist(path: Path, out: SourceSet, _seen: set[Path] | None = None) -
     if key in seen:
         raise VeriViewError(f"Recursive file list include: {path}")
     seen.add(key)
+    out.filelists.append(path)
     base = path.parent
     log.info(f"Reading file list: {path}")
 

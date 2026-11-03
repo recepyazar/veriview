@@ -148,6 +148,58 @@ def test_display_name():
 
 
 def test_find_top():
-    from veriview.html import find_top
+    from veriview.scope import find_top
     assert find_top({"a": {}, "b": {"attributes": {"top": "00000000000000000000000000000001"}}}) == "b"
     assert find_top({"a": {}, "b": {"attributes": {"top": 0}}}) == "a"
+
+
+# --- scope (--select / --depth) and stages ------------------------------------
+
+def _netlist():
+    def mod(cells, top=False):
+        attrs = {"top": "00000000000000000000000000000001"} if top else {}
+        return {"attributes": attrs, "ports": {}, "cells": {k: {"type": v} for k, v in cells.items()}}
+    p = "$paramod\\mid\\W=s32'00000000000000000000000000000100"
+    return {"modules": {
+        "top": mod({"u_mid": p, "gen[0].u_leaf": "leaf", "x": "$and"}, top=True),
+        p: mod({"l0": "leaf"}) | {"attributes": {"hdlname": "mid"}},
+        "leaf": mod({"n": "$not"}),
+        "unused": mod({}),
+    }}
+
+
+def test_resolve_instance():
+    from veriview.scope import resolve_instance
+    mods = _netlist()["modules"]
+    assert resolve_instance(mods, "top", "u_mid")[0].startswith("$paramod\\mid")
+    assert resolve_instance(mods, "top", "u_mid/l0") == ("leaf", ["u_mid", "l0"])
+    assert resolve_instance(mods, "top", "u_mid.l0") == ("leaf", ["u_mid", "l0"])
+    assert resolve_instance(mods, "top", "gen[0].u_leaf") == ("leaf", ["gen[0].u_leaf"])
+    with pytest.raises(VeriViewError, match="No sub-module instance 'nope'"):
+        resolve_instance(mods, "top", "nope")
+
+
+def test_reroot_and_depth():
+    from veriview.scope import find_top, module_depths, reroot
+    net = _netlist()
+    mods = net["modules"]
+    p = "$paramod\\mid\\W=s32'00000000000000000000000000000100"
+    assert module_depths(mods, "top") == {"top": 0, p: 1, "leaf": 1}
+
+    out, root = reroot(net, p)
+    assert root == "mid" and set(out["modules"]) == {"mid", "leaf"}
+    assert find_top(out["modules"]) == "mid"
+    assert "top" not in out["modules"]["leaf"]["attributes"]
+
+    out, root = reroot(net, "top", keep_below=0)
+    assert root == "top" and "unused" not in out["modules"]
+    assert "keep_hierarchy" in out["modules"]["leaf"]["attributes"]
+    assert "keep_hierarchy" not in out["modules"]["top"]["attributes"]
+
+
+def test_stage_commands():
+    from veriview.synth import stage_commands
+    assert stage_commands("opt", False) == ["proc", "opt", "opt_clean -purge"]
+    assert "flatten" in stage_commands("elab", True)
+    assert any(c.startswith("setattr -set keep") for c in stage_commands("elab", False))
+    assert any(c.startswith("abc -g") for c in stage_commands("gate", False))

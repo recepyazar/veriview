@@ -103,6 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ui", action="store_true",
                    help="open the launcher page: pick files, the top module and options in the browser "
                         "(also what plain `veriview` does in a terminal); an input folder is its starting folder")
+    p.add_argument("--editor", action="store_true",
+                   help="open the gate editor (draw a circuit, get Verilog, open it in the viewer); "
+                        "an input folder is where designs are saved")
     p.add_argument("--watch", action="store_true",
                    help="rebuild whenever a source file changes; with --html, serve the viewer on a local "
                         "web server that reloads automatically")
@@ -284,11 +287,11 @@ def run(argv: list[str] | None = None) -> int:
     log.set_quiet(args.quiet)
     # `veriview` alone in a terminal (or --ui): the launcher page
     interactive = sys.stdin.isatty() and sys.stdout.isatty()
-    if args.ui or (not args.inputs and not args.filelists and not args.install_deps and interactive):
+    if args.ui or args.editor or (not args.inputs and not args.filelists and not args.install_deps and interactive):
         from .launcher import launch
         ensure_dependencies(install=False, assume_yes=args.yes, want_sv2v=False)
         root = Path(args.inputs[0]) if args.inputs and Path(args.inputs[0]).is_dir() else Path.cwd()
-        return launch(root, port=args.port, open_browser=args.open is not False)
+        return launch(root, port=args.port, open_browser=args.open is not False, start="/editor" if args.editor else "")
     args, inputs, html_stages = prepare(argv, parser, args)
 
     ensure_dependencies(install=args.install_deps, assume_yes=args.yes,

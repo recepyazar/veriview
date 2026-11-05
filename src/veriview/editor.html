@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VeriView · Gate editor</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --border: #dde1e6; --text: #1d232b; --muted: #5f6b7a;
+    --accent: #2563eb; --on-accent: #ffffff; --accent-soft: #e6eefc; --paper: #ffffff; --grid: #eef0f3;
+    --wire: #344054; --sel: #e8590c; --bad: #d92d20; --ok: #15a34a;
+  }
+  :root[data-theme="dark"] {
+    --bg: #111418; --panel: #181c21; --border: #2a3038; --text: #e6e9ed; --muted: #95a0ad;
+    --accent: #6ea0ff; --on-accent: #0b1220; --accent-soft: #1c2a42; --paper: #15181c; --grid: #20252c;
+    --wire: #c9d1db; --sel: #fb923c; --bad: #f97066; --ok: #4ade80;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111418; --panel: #181c21; --border: #2a3038; --text: #e6e9ed; --muted: #95a0ad;
+      --accent: #6ea0ff; --on-accent: #0b1220; --accent-soft: #1c2a42; --paper: #15181c; --grid: #20252c;
+      --wire: #c9d1db; --sel: #fb923c; --bad: #f97066; --ok: #4ade80;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: 170px 1fr 38%;
+    grid-template-areas: "head head head" "pal canvas code" "foot foot foot";
+    background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  header { grid-area: head; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  header .brand { font-weight: 700; }
+  header .brand small { color: var(--muted); font-weight: 400; margin-left: 4px; }
+  header input { padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); width: 160px; }
+  .spacer { flex: 1; }
+  .btn { border: 1px solid var(--border); background: var(--panel); border-radius: 6px; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+  .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .btn.primary:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.08); }
+  aside { grid-area: pal; background: var(--panel); border-right: 1px solid var(--border); padding: 10px; overflow: auto; }
+  aside h3 { margin: 6px 0; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  aside .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+  aside .btn { padding: 6px 4px; font-size: 13px; }
+  aside .help { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  #canvas { grid-area: canvas; position: relative; background: var(--paper); overflow: hidden; touch-action: none; }
+  #canvas svg { width: 100%; height: 100%; display: block; user-select: none; }
+  .node .body { fill: var(--paper); stroke: var(--wire); stroke-width: 2; }
+  .node.sel .body { stroke: var(--sel); stroke-width: 3; }
+  .node text { fill: var(--text); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; pointer-events: none; }
+  .node { cursor: move; }
+  .pin { fill: var(--paper); stroke: var(--wire); stroke-width: 1.5; cursor: crosshair; }
+  .pin:hover, .pin.hot { fill: var(--accent); stroke: var(--accent); }
+  .pin.free { stroke: var(--bad); }
+  .wire { fill: none; stroke: var(--wire); stroke-width: 2; }
+  .wire-hit { fill: none; stroke: transparent; stroke-width: 10; cursor: pointer; }
+  .wire.sel { stroke: var(--sel); stroke-width: 3; }
+  .wire.temp { stroke: var(--accent); stroke-dasharray: 5 4; }
+  #code { grid-area: code; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--border); }
+  #code .head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  #verilog { flex: 1; margin: 0; overflow: auto; padding: 10px 12px; font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
+  #warnings { border-top: 1px solid var(--border); padding: 6px 10px; font-size: 12.5px; max-height: 25%; overflow: auto; }
+  #warnings:empty { display: none; }
+  #warnings div { color: var(--bad); }
+  #verilog .k { color: #7c3aed; font-weight: 600; } #verilog .c { color: #6b7280; font-style: italic; } #verilog .n { color: #0e7490; }
+  footer { grid-area: foot; padding: 5px 12px; color: var(--muted); border-top: 1px solid var(--border); background: var(--panel); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  footer b { color: var(--text); }
+  @media (max-width: 860px) {
+    body { grid-template-columns: 1fr; grid-template-rows: auto auto 60vh auto auto; grid-template-areas: "head" "pal" "canvas" "code" "foot"; }
+    aside .grid { grid-template-columns: repeat(4, 1fr); }
+    #code { max-height: 45vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">VeriView<small data-t>Gate editor</small></div>
+  <label><span data-t>Module</span> <input id="modname" value="my_design" spellcheck="false"></label>
+  <span class="spacer"></span>
+  <button class="btn" id="b-new" data-t>New</button>
+  <button class="btn" id="b-load" data-t>Load…</button>
+  <button class="btn" id="b-save" data-t>Save design</button>
+  <button class="btn" id="b-v" data-t>Download Verilog</button>
+  <button class="btn primary" id="b-open" title="Save the Verilog file in the folder and open it in the viewer (simulation, timing, FSM…)" data-t>▶ Save &amp; open in viewer</button>
+  <button class="btn" id="btn-lang" title="Language / Dil">TR</button>
+  <button class="btn" id="btn-theme" title="Toggle light/dark theme">◐</button>
+  <input type="file" id="file" accept=".json,application/json" hidden>
+</header>
+<aside>
+  <h3 data-t>Ports</h3>
+  <div class="grid">
+    <button class="btn" data-add="in" data-t>Input</button><button class="btn" data-add="out" data-t>Output</button>
+    <button class="btn" data-add="const0">0</button><button class="btn" data-add="const1">1</button>
+  </div>
+  <h3 data-t>Gates</h3>
+  <div class="grid">
+    <button class="btn" data-add="not">NOT</button><button class="btn" data-add="buf">BUF</button>
+    <button class="btn" data-add="and">AND</button><button class="btn" data-add="or">OR</button>
+    <button class="btn" data-add="nand">NAND</button><button class="btn" data-add="nor">NOR</button>
+    <button class="btn" data-add="xor">XOR</button><button class="btn" data-add="xnor">XNOR</button>
+    <button class="btn" data-add="mux">MUX</button>
+  </div>
+  <h3 data-t>Flip-flops</h3>
+  <div class="grid">
+    <button class="btn" data-add="dff">DFF</button><button class="btn" data-add="dffr" title="DFF with active-low asynchronous reset">DFF+R</button>
+  </div>
+  <div class="help" id="help"></div>
+</aside>
+<div id="canvas"></div>
+<section id="code">
+  <div class="head"><b>Verilog</b><span class="spacer"></span><button class="btn" id="b-copy" data-t>Copy</button></div>
+  <pre id="verilog"></pre>
+  <div id="warnings"></div>
+</section>
+<footer id="status"></footer>
+<script>
+/*__EDITOR_CORE__*/
+</script>
+<script>
+const EDITOR = /*__EDITOR_DATA__*/null;
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const SVGNS = "http://www.w3.org/2000/svg";
+  // ---- language -------------------------------------------------------------------------
+  const TR = {
+    "Gate editor": "Kapı editörü", "Module": "Modül", "New": "Yeni", "Load…": "Aç…", "Save design": "Tasarımı kaydet",
+    "Download Verilog": "Verilog'u indir", "▶ Save & open in viewer": "▶ Kaydet ve görüntüleyicide aç",
+    "Save the Verilog file in the folder and open it in the viewer (simulation, timing, FSM…)":
+      "Verilog dosyasını klasöre kaydet ve görüntüleyicide aç (simülasyon, zamanlama, FSM…)",
+    "Toggle light/dark theme": "Açık / koyu tema", "Ports": "Portlar", "Input": "Giriş", "Output": "Çıkış", "Gates": "Kapılar",
+    "Flip-flops": "Flip-flop'lar", "DFF with active-low asynchronous reset": "Aktif-düşük asenkron reset'li DFF", "Copy": "Kopyala",
+    "help": "<b>Ekle:</b> soldaki düğmeler · <b>Taşı:</b> sürükle · <b>Bağla:</b> bir pinden diğerine sürükle · <b>Sil:</b> seç + Delete · " +
+      "<b>Çift tık:</b> port adı / sabit 0↔1 / kapı giriş sayısı · <b>Tekerlek:</b> yakınlaştır · <b>Boş alanı sürükle:</b> kaydır",
+    "Name for this port": "Bu port için isim", "Copied.": "Kopyalandı.", "Saved {f}; opening the viewer…": "{f} kaydedildi; görüntüleyici açılıyor…",
+    "Saving and opening needs the launcher (run `veriview` or `veriview --editor`). Use Download Verilog instead.":
+      "Kaydedip açmak için launcher gerekli (`veriview` ya da `veriview --editor`). Bunun yerine Verilog'u indir.",
+    "{n} gates, {m} wires": "{n} kapı, {m} tel", "Start: add an input, a gate and an output, then drag from pin to pin.":
+      "Başla: bir giriş, bir kapı ve bir çıkış ekle, sonra pinden pine sürükle.",
+    "Delete the whole design?": "Tüm tasarım silinsin mi?", "File name (in the launcher folder):": "Dosya adı (launcher klasöründe):",
+    "{f} exists. Overwrite?": "{f} zaten var. Üzerine yazılsın mı?", "Not a VeriView design file.": "VeriView tasarım dosyası değil.",
+    "unconnected input {pin} of {node} (tied to 0)": "{node} kapısının {pin} girişi bağlı değil (0'a bağlandı)",
+    "output {name} is not driven (tied to 0)": "{name} çıkışı sürülmüyor (0'a bağlandı)",
+    "combinational loop through {list}": "{list} üzerinden kombinasyonel döngü",
+    "duplicate port name {name}": "port adı tekrarlanıyor: {name}", "no ports yet": "henüz port yok",
+    "{n} warning(s)": "{n} uyarı",
+  };
+  let LANG = "en";
+  try { LANG = ((localStorage.getItem("veriview-lang") || navigator.language || "") + "").toLowerCase().startsWith("tr") ? "tr" : "en"; } catch (e) {}
+  const _t = (s, v) => { let o = LANG === "tr" && TR[s] !== undefined ? TR[s] : s; if (v) for (const [k, x] of Object.entries(v)) o = o.split(`{${k}}`).join(String(x)); return o; };
+  document.documentElement.lang = LANG;
+  for (const el of document.querySelectorAll("[data-t]")) el.textContent = _t(el.textContent.trim());
+  for (const el of document.querySelectorAll("[title]")) el.title = _t(el.title);
+  $("help").innerHTML = LANG === "tr" ? TR.help :
+    "<b>Add:</b> buttons on the left · <b>Move:</b> drag · <b>Connect:</b> drag from one pin to another · <b>Delete:</b> select + Delete · " +
+    "<b>Double-click:</b> port name / constant 0↔1 / number of gate inputs · <b>Wheel:</b> zoom · <b>Drag empty space:</b> pan";
+  $("btn-lang").textContent = LANG === "tr" ? "EN" : "TR";
+  $("btn-lang").onclick = () => { try { localStorage.setItem("veriview-lang", LANG === "tr" ? "en" : "tr"); } catch (e) {} location.reload(); };
+  const root = document.documentElement;
+  try { const th = localStorage.getItem("veriview-theme"); if (th) root.dataset.theme = th; } catch (e) {}
+  $("btn-theme").onclick = () => {
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("veriview-theme", root.dataset.theme); } catch (e) {}
+  };
+
+  // ---- model ----------------------------------------------------------------------------
+  // node: {id, type, x, y, name?, n?}; wire: {id, from: {node, pin}, to: {node, pin}} (from = an output pin)
+  const { GATE2, pinsOf } = VVEditor;
+  const sizeOf = (nd) => {
+    if (nd.type === "in" || nd.type === "out") return { w: 70, h: 30 };
+    if (nd.type.startsWith("const")) return { w: 36, h: 30 };
+    if (nd.type === "dff" || nd.type === "dffr") return { w: 70, h: nd.type === "dffr" ? 80 : 64 };
+    if (nd.type === "mux") return { w: 50, h: 70 };
+    const n = pinsOf(nd).ins.length;
+    return { w: 64, h: Math.max(40, 20 * n + 4) };
+  };
+  const pinPos = (nd, pin, isOut) => {
+    const { w, h } = sizeOf(nd), p = pinsOf(nd);
+    if (isOut) return { x: nd.x + w, y: nd.y + h / 2 };
+    if (nd.type === "mux" && pin === "S") return { x: nd.x + w / 2, y: nd.y + h - 6 };
+    const ins = nd.type === "mux" ? ["A", "B"] : p.ins;
+    const i = ins.indexOf(pin);
+    return { x: nd.x, y: nd.y + (h * (i + 1)) / (ins.length + 1) };
+  };
+  let D = { nodes: [], wires: [], seq: 1 };
+  const STORE = "veriview-editor1";
+  const load = () => { try { const s = JSON.parse(localStorage.getItem(STORE) || "null"); if (s && s.nodes) { D = s; $("modname").value = s.module || "my_design"; } } catch (e) {} };
+  const persist = () => { try { localStorage.setItem(STORE, JSON.stringify({ ...D, module: $("modname").value })); } catch (e) {} };
+  let sel = null; // {kind: "node"|"wire", id}
+
+  // ---- view (pan / zoom) ------------------------------------------------------------------
+  const svg = document.createElementNS(SVGNS, "svg");
+  $("canvas").append(svg);
+  let vb = { x: 0, y: 0, w: 1000, h: 700 };
+  const setVB = () => svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+  const fitAspect = () => { const r = $("canvas").getBoundingClientRect(); if (r.width && r.height) { vb.h = vb.w * r.height / r.width; setVB(); } };
+  new ResizeObserver(fitAspect).observe($("canvas"));
+  const toSvg = (cx, cy) => { const p = svg.createSVGPoint(); p.x = cx; p.y = cy; return p.matrixTransform(svg.getScreenCTM().inverse()); };
+  svg.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const p = toSvg(e.clientX, e.clientY), k = Math.exp(Math.max(-1, Math.min(1, e.deltaY * 0.0015)));
+    const nw = Math.min(Math.max(vb.w * k, 200), 6000), f = nw / vb.w;
+    vb = { x: p.x - (p.x - vb.x) * f, y: p.y - (p.y - vb.y) * f, w: vb.w * f, h: vb.h * f };
+    setVB();
+  }, { passive: false });
+
+  // ---- drawing ----------------------------------------------------------------------------
+  const el = (tag, attrs, text) => { const e = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text !== undefined) e.textContent = text; return e; };
+  const symbol = (nd) => {
+    const { w, h } = sizeOf(nd), t = nd.type, g = el("g", {});
+    const bubble = ["nand", "nor", "xnor", "not"].includes(t);
+    const bw = bubble ? w - 8 : w;
+    if (t === "in") g.append(el("path", { class: "body", d: `M0 0 H${w - 12} L${w} ${h / 2} L${w - 12} ${h} H0 Z` }));
+    else if (t === "out") g.append(el("path", { class: "body", d: `M12 0 H${w} V${h} H12 L0 ${h / 2} Z` }));
+    else if (t.startsWith("const")) g.append(el("rect", { class: "body", width: w, height: h, rx: 4 }));
+    else if (t === "and" || t === "nand") g.append(el("path", { class: "body", d: `M0 0 H${bw / 2} A${bw / 2} ${h / 2} 0 0 1 ${bw / 2} ${h} H0 Z` }));
+    else if (t === "or" || t === "nor" || t === "xor" || t === "xnor") {
+      g.append(el("path", { class: "body", d: `M0 0 Q${bw * 0.55} 0 ${bw} ${h / 2} Q${bw * 0.55} ${h} 0 ${h} Q${bw * 0.28} ${h / 2} 0 0 Z` }));
+      if (t === "xor" || t === "xnor") g.append(el("path", { class: "body", d: `M-7 0 Q${bw * 0.28 - 7} ${h / 2} -7 ${h}`, fill: "none" }));
+    } else if (t === "not" || t === "buf") g.append(el("path", { class: "body", d: `M0 0 L${bw} ${h / 2} L0 ${h} Z` }));
+    else if (t === "mux") {
+      g.append(el("path", { class: "body", d: `M0 0 L${w} 14 L${w} ${h - 14} L0 ${h} Z` }));
+      g.append(el("text", { x: 5, y: (h * 1) / 3 + 4 }, "0"), el("text", { x: 5, y: (h * 2) / 3 + 4 }, "1"));
+    } else if (t === "dff" || t === "dffr") {
+      g.append(el("rect", { class: "body", width: w, height: h, rx: 3 }));
+      const p = pinsOf(nd);
+      p.ins.forEach((pin) => { const pp = pinPos({ ...nd, x: 0, y: 0 }, pin, false); g.append(el("text", { x: 6, y: pp.y + 4 }, pin === "CLK" ? "" : pin)); });
+      const ck = pinPos({ ...nd, x: 0, y: 0 }, "CLK", false);
+      g.append(el("path", { class: "body", d: `M0 ${ck.y - 6} L9 ${ck.y} L0 ${ck.y + 6}`, fill: "none" }));
+      g.append(el("text", { x: w - 16, y: h / 2 + 4 }, "Q"));
+    }
+    if (bubble) g.append(el("circle", { class: "body", cx: w - 4, cy: h / 2, r: 4 }));
+    const label = t === "in" || t === "out" ? nd.name : t.startsWith("const") ? (t === "const1" ? "1" : "0")
+      : t === "dff" || t === "dffr" ? "" : t === "mux" ? "" : "";
+    if (label) g.append(el("text", { x: t === "out" ? 18 : t.startsWith("const") ? w / 2 - 4 : 6, y: h / 2 + 4 }, label));
+    if (GATE2.includes(t) || t === "not" || t === "buf") g.append(el("text", { x: 0, y: -4, "font-size": 10, fill: "currentColor", opacity: 0.6 }, t.toUpperCase()));
+    if (t === "dff" || t === "dffr") g.append(el("text", { x: 0, y: -4, "font-size": 10, opacity: 0.6 }, t === "dffr" ? "DFF+R" : "DFF"));
+    return g;
+  };
+  const route = (a, b) => {   // orthogonal wire: out pin -> midpoint x -> in pin
+    const mx = Math.max(a.x + 12, (a.x + b.x) / 2);
+    return b.x > a.x + 12 ? `M${a.x} ${a.y} H${mx} V${b.y} H${b.x}` : `M${a.x} ${a.y} H${a.x + 12} V${(a.y + b.y) / 2} H${b.x - 12} V${b.y} H${b.x}`;
+  };
+  function draw() {
+    svg.textContent = "";
+    // grid
+    const defs = el("defs", {});
+    const pat = el("pattern", { id: "grid", width: 20, height: 20, patternUnits: "userSpaceOnUse" });
+    pat.append(el("circle", { cx: 1, cy: 1, r: 1, fill: "var(--grid)" }));
+    defs.append(pat); svg.append(defs, el("rect", { x: -5000, y: -5000, width: 10000, height: 10000, fill: "url(#grid)", class: "bg" }));
+    const byId = Object.fromEntries(D.nodes.map((n) => [n.id, n]));
+    const connected = new Set(D.wires.map((w) => `${w.to.node}:${w.to.pin}`));
+    for (const w of D.wires) {
+      const a = byId[w.from.node], b = byId[w.to.node];
+      if (!a || !b) continue;
+      const d = route(pinPos(a, w.from.pin, true), pinPos(b, w.to.pin, false));
+      const isSel = sel && sel.kind === "wire" && sel.id === w.id;
+      svg.append(el("path", { class: "wire" + (isSel ? " sel" : ""), d }));
+      const hit = el("path", { class: "wire-hit", d, "data-wire": w.id });
+      svg.append(hit);
+    }
+    for (const nd of D.nodes) {
+      const g = el("g", { class: "node" + (sel && sel.kind === "node" && sel.id === nd.id ? " sel" : ""), transform: `translate(${nd.x},${nd.y})`, "data-node": nd.id });
+      g.append(symbol(nd));
+      const p = pinsOf(nd);
+      for (const pin of p.ins) {
+        const pp = pinPos({ ...nd, x: 0, y: 0 }, pin, false);
+        g.append(el("circle", { class: "pin" + (connected.has(`${nd.id}:${pin}`) ? "" : " free"), cx: pp.x, cy: pp.y, r: 5, "data-pin": pin, "data-dir": "in" }));
+      }
+      for (const pin of p.outs) {
+        const pp = pinPos({ ...nd, x: 0, y: 0 }, pin, true);
+        g.append(el("circle", { class: "pin", cx: pp.x, cy: pp.y, r: 5, "data-pin": pin, "data-dir": "out" }));
+      }
+      svg.append(g);
+    }
+    generate();
+  }
+
+  // ---- editing ---------------------------------------------------------------------------
+  const uniqueName = (base) => {
+    const used = new Set(D.nodes.filter((n) => n.name).map((n) => n.name));
+    if (!used.has(base)) return base;
+    for (let i = 1; ; i++) if (!used.has(base + i)) return base + i;
+  };
+  function addNode(type) {
+    const c = { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 };
+    const off = (D.nodes.length % 6) * 20;
+    const nd = { id: D.seq++, type, x: Math.round((c.x - 40 + off) / 10) * 10, y: Math.round((c.y - 20 + off) / 10) * 10 };
+    if (type === "in") nd.name = uniqueName(["a", "b", "c", "d", "clk"].find((n) => !D.nodes.some((x) => x.name === n)) || "in");
+    if (type === "out") nd.name = uniqueName("y");
+    if (GATE2.includes(type)) nd.n = 2;
+    D.nodes.push(nd);
+    sel = { kind: "node", id: nd.id };
+    persist(); draw();
+  }
+  for (const b of document.querySelectorAll("[data-add]")) b.onclick = () => addNode(b.dataset.add);
+  function removeSel() {
+    if (!sel) return;
+    if (sel.kind === "node") { D.nodes = D.nodes.filter((n) => n.id !== sel.id); D.wires = D.wires.filter((w) => w.from.node !== sel.id && w.to.node !== sel.id); }
+    else D.wires = D.wires.filter((w) => w.id !== sel.id);
+    sel = null; persist(); draw();
+  }
+  function connect(a, b) {  // a, b: {node, pin, dir}
+    if (a.dir === b.dir || a.node === b.node && a.pin === b.pin) return;
+    const from = a.dir === "out" ? a : b, to = a.dir === "out" ? b : a;
+    D.wires = D.wires.filter((w) => !(w.to.node === to.node && w.to.pin === to.pin));  // one driver per input
+    D.wires.push({ id: D.seq++, from: { node: from.node, pin: from.pin }, to: { node: to.node, pin: to.pin } });
+    persist(); draw();
+  }
+
+  let drag = null;
+  svg.addEventListener("pointerdown", (e) => {
+    const p = toSvg(e.clientX, e.clientY);
+    const pinEl = e.target.closest && e.target.closest(".pin");
+    const nodeEl = e.target.closest && e.target.closest(".node");
+    const wireEl = e.target.closest && e.target.closest(".wire-hit");
+    if (pinEl) {
+      const id = +nodeEl.dataset.node, nd = D.nodes.find((n) => n.id === id);
+      const start = { node: id, pin: pinEl.dataset.pin, dir: pinEl.dataset.dir };
+      const sp = pinPos(nd, start.pin, start.dir === "out");
+      const tmp = el("path", { class: "wire temp", d: `M${sp.x} ${sp.y}` });
+      svg.append(tmp);
+      drag = { kind: "wire", start, sp, tmp };
+    } else if (nodeEl) {
+      const id = +nodeEl.dataset.node, nd = D.nodes.find((n) => n.id === id);
+      sel = { kind: "node", id };
+      drag = { kind: "node", nd, dx: p.x - nd.x, dy: p.y - nd.y, el: nodeEl, moved: false };
+      draw();
+      drag.el = svg.querySelector(`[data-node="${id}"]`);
+    } else if (wireEl) {
+      sel = { kind: "wire", id: +wireEl.dataset.wire }; draw();
+    } else {
+      sel = null; draw();
+      drag = { kind: "pan", x: e.clientX, y: e.clientY, vb: { ...vb }, k: vb.w / (svg.getBoundingClientRect().width || 1) };
+    }
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const p = toSvg(e.clientX, e.clientY);
+    if (drag.kind === "node") {
+      drag.nd.x = Math.round((p.x - drag.dx) / 10) * 10; drag.nd.y = Math.round((p.y - drag.dy) / 10) * 10;
+      drag.moved = true; draw(); drag.el = svg.querySelector(`[data-node="${drag.nd.id}"]`);
+    } else if (drag.kind === "wire") {
+      drag.tmp.setAttribute("d", `M${drag.sp.x} ${drag.sp.y} L${p.x} ${p.y}`);
+      for (const h of svg.querySelectorAll(".pin.hot")) h.classList.remove("hot");
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      if (under && under.classList && under.classList.contains("pin") && under.dataset.dir !== drag.start.dir) under.classList.add("hot");
+    } else if (drag.kind === "pan") {
+      vb = { ...drag.vb, x: drag.vb.x - (e.clientX - drag.x) * drag.k, y: drag.vb.y - (e.clientY - drag.y) * drag.k }; setVB();
+    }
+  });
+  svg.addEventListener("pointerup", (e) => {
+    if (drag && drag.kind === "wire") {
+      drag.tmp.remove();
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      const pinEl = under && under.closest && under.closest(".pin");
+      if (pinEl) {
+        const nodeEl = pinEl.closest(".node");
+        connect(drag.start, { node: +nodeEl.dataset.node, pin: pinEl.dataset.pin, dir: pinEl.dataset.dir });
+      }
+    }
+    if (drag && drag.kind === "node" && drag.moved) persist();
+    drag = null;
+  });
+  svg.addEventListener("dblclick", (e) => {
+    const nodeEl = e.target.closest && e.target.closest(".node");
+    if (!nodeEl) return;
+    const nd = D.nodes.find((n) => n.id === +nodeEl.dataset.node);
+    if (nd.type === "in" || nd.type === "out") {
+      const v = prompt(_t("Name for this port"), nd.name);
+      if (v && /^[A-Za-z_][A-Za-z0-9_]*$/.test(v.trim())) nd.name = v.trim();
+    } else if (nd.type === "const0" || nd.type === "const1") nd.type = nd.type === "const0" ? "const1" : "const0";
+    else if (GATE2.includes(nd.type)) {
+      nd.n = (nd.n || 2) >= 4 ? 2 : (nd.n || 2) + 1;
+      D.wires = D.wires.filter((w) => !(w.to.node === nd.id && pinsOf(nd).ins.indexOf(w.to.pin) < 0));
+    }
+    persist(); draw();
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.target.matches && e.target.matches("input")) return;
+    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeSel(); }
+    else if (e.key === "Escape") { sel = null; draw(); }
+  });
+
+  // ---- Verilog generation (editor_core.js, inlined above) ---------------------------------
+  function verilog() { return VVEditor.toVerilog(D, $("modname").value, _t); }
+  const KW = /\b(module|endmodule|input|output|wire|reg|assign|always|posedge|negedge|if|else)\b/g;
+  function generate() {
+    const { text, warn } = verilog();
+    const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    $("verilog").innerHTML = text.split("\n").map((l) => {
+      const i = l.indexOf("//");
+      const code = i >= 0 ? l.slice(0, i) : l, com = i >= 0 ? l.slice(i) : "";
+      return esc(code).replace(KW, '<span class="k">$1</span>').replace(/\b1'b[01]\b/g, '<span class="n">$&</span>') + (com ? `<span class="c">${esc(com)}</span>` : "");
+    }).join("\n");
+    $("warnings").innerHTML = warn.map((w) => `<div>⚠ ${esc(w)}</div>`).join("");
+    const gates = D.nodes.filter((n) => !["in", "out", "const0", "const1"].includes(n.type)).length;
+    $("status").innerHTML = D.nodes.length
+      ? `<b>${esc(verilog().mod)}</b> · ${esc(_t("{n} gates, {m} wires", { n: gates, m: D.wires.length }))}` + (warn.length ? ` · ${esc(_t("{n} warning(s)", { n: warn.length }))}` : "")
+      : esc(_t("Start: add an input, a gate and an output, then drag from pin to pin."));
+  }
+  $("modname").addEventListener("input", () => { persist(); generate(); });
+
+  // ---- files -----------------------------------------------------------------------------
+  const download = (name, text, type) => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type }));
+    a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+  $("b-v").onclick = () => { const v = verilog(); download(`${v.mod}.v`, v.text, "text/plain"); };
+  $("b-save").onclick = () => download(`${verilog().mod}.veriview.json`, JSON.stringify({ veriview: "gate-editor", version: 1, module: $("modname").value, ...D }, null, 1), "application/json");
+  $("b-load").onclick = () => $("file").click();
+  $("file").onchange = async () => {
+    const f = $("file").files[0];
+    if (!f) return;
+    try {
+      const j = JSON.parse(await f.text());
+      if (j.veriview !== "gate-editor" || !Array.isArray(j.nodes)) throw new Error();
+      D = { nodes: j.nodes, wires: j.wires || [], seq: j.seq || 1 + Math.max(0, ...j.nodes.map((n) => n.id), ...(j.wires || []).map((w) => w.id)) };
+      $("modname").value = j.module || "my_design";
+      sel = null; persist(); draw();
+    } catch (e) { alert(_t("Not a VeriView design file.")); }
+    $("file").value = "";
+  };
+  $("b-new").onclick = () => { if (!D.nodes.length || confirm(_t("Delete the whole design?"))) { D = { nodes: [], wires: [], seq: 1 }; sel = null; persist(); draw(); } };
+  $("b-copy").onclick = async () => { try { await navigator.clipboard.writeText(verilog().text); $("status").textContent = _t("Copied."); } catch (e) {} };
+  const api = async (path, body) => {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-VeriView": "1" }, body: JSON.stringify(body) });
+    return r.json();
+  };
+  $("b-open").onclick = async () => {
+    if (!EDITOR || !EDITOR.launcher) { alert(_t("Saving and opening needs the launcher (run `veriview` or `veriview --editor`). Use Download Verilog instead.")); return; }
+    const v = verilog();
+    let name = prompt(_t("File name (in the launcher folder):"), `${v.mod}.v`);
+    if (!name) return;
+    if (!/\.s?v$/.test(name)) name += ".v";
+    const tab = window.open("about:blank", "_blank");
+    let r = await api("/api/save", { path: name, text: v.text, overwrite: false });
+    if (r.exists && confirm(_t("{f} exists. Overwrite?", { f: name }))) r = await api("/api/save", { path: name, text: v.text, overwrite: true });
+    if (r.error || r.exists) { if (tab) tab.close(); if (r.error) alert(r.error); return; }
+    $("status").textContent = _t("Saved {f}; opening the viewer…", { f: r.path });
+    const b = await api("/api/build", { files: [r.path], stages: ["elab", "opt", "gate"], live: true });
+    if (b.error && !b.version) { if (tab) tab.close(); alert(b.error); return; }
+    if (tab) tab.location = b.url; else window.open(b.url, "_blank");
+  };
+
+  load();
+  if (!D.nodes.length) {   // a small starting example: y = a & b
+    D = { nodes: [{ id: 1, type: "in", name: "a", x: 120, y: 200 }, { id: 2, type: "in", name: "b", x: 120, y: 280 },
+      { id: 3, type: "and", n: 2, x: 300, y: 230 }, { id: 4, type: "out", name: "y", x: 460, y: 235 }],
+    wires: [{ id: 5, from: { node: 1, pin: "Y" }, to: { node: 3, pin: "A" } }, { id: 6, from: { node: 2, pin: "Y" }, to: { node: 3, pin: "B" } },
+      { id: 7, from: { node: 3, pin: "Y" }, to: { node: 4, pin: "A" } }], seq: 8 };
+  }
+  // start with the drawing filling the view (not too zoomed in for tiny designs)
+  const r = $("canvas").getBoundingClientRect(), asp = r.width && r.height ? r.height / r.width : 0.66;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const nd of D.nodes) { const z = sizeOf(nd); x0 = Math.min(x0, nd.x); y0 = Math.min(y0, nd.y); x1 = Math.max(x1, nd.x + z.w); y1 = Math.max(y1, nd.y + z.h); }
+  if (isFinite(x0)) {
+    const w = Math.max(560, (x1 - x0) + 160, ((y1 - y0) + 160) / asp);
+    vb = { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - (w * asp) / 2, w, h: w * asp };
+  } else vb = { x: 0, y: 0, w: 900, h: 900 * asp };
+  setVB();
+  draw();
+})();
+</script>
+</body>
+</html>

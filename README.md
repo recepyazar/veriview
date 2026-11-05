@@ -90,6 +90,8 @@ Add `-t NAME` to make any module the top, e.g. a sub-block of the folder: `veriv
 
 **Prefer clicking?** Run `veriview` without arguments (or `veriview --ui folder/`): a launcher page opens in the browser where you pick the files and the top module, tick the views and options, and open the viewer (live by default: it rebuilds whenever you save), or get the timing / FSM reports — no command-line options to remember. It only listens on `127.0.0.1` and only serves files below the start folder.
 
+**Drawing instead of typing?** `veriview --editor` (or **✎ Gate editor** in the launcher) opens a gate editor: place inputs, outputs, constants, NOT/BUF/AND/OR/NAND/NOR/XOR/XNOR (2–4 inputs), MUX and flip-flops (with optional asynchronous reset), wire them pin to pin, and watch the Verilog being written next to the drawing. **Save & open in viewer** stores the `.v` file in the folder and opens it — so a drawn circuit can be simulated, timed and viewed at gate level right away. Designs are kept in the browser and can be saved/loaded as files.
+
 That is all you need day to day: the top module is detected automatically and every feature (views, flatten, timing, FSM diagrams, simulation, source code) is a button in the viewer. The full syntax is
 
 ```bash
@@ -123,6 +125,7 @@ where `<input>` is one or more `.v`/`.sv` files, `.f` file lists or a folder. Th
 | `--bg <color\|none>` | Background color (default `white`). |
 | `--keep-json` | Keep the Yosys JSON netlist next to the SVG. |
 | `--open`, `--no-open` | Open the result in the browser (default: only the viewer, only without `-o`). |
+| `--editor` | Open the gate editor (draw a circuit → Verilog → viewer); an input folder is where designs are saved. |
 | `--ui` | Open the launcher page (what plain `veriview` does in a terminal); an input folder is its starting folder. |
 | `--watch` | Rebuild whenever a source file changes (Ctrl+C to stop). With `--html`, serves the viewer at `http://127.0.0.1:8765/` and reloads the browser automatically. |
 | `--port <N>` | Port for `--watch --html` (default 8765; the next free port is used if busy). |
@@ -419,6 +422,7 @@ Code layout (`src/veriview/`):
 | `scope.py` | `--select`, `--depth`, `--cone` (operating on the JSON netlist) |
 | `watch.py` | `--watch`: file polling, local live-reload server |
 | `launcher.py`, `launcher.html` | the launcher page (`veriview` / `--ui`) |
+| `editor.html`, `editor_core.js` | the gate editor (`--editor`); Verilog generation is DOM-free and tested with node |
 | `tools.py` | finding/installing yosys, netlistsvg, sv2v |
 
 CI runs lint and tests on Python 3.9 and 3.13 for every push and pull request.

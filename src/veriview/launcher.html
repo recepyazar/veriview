@@ -27,6 +27,7 @@
   header .brand { font-weight: 700; font-size: 16px; }
   header .brand small { color: var(--muted); font-weight: 400; margin-left: 4px; font-size: 13px; }
   header .root { flex: 1; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  a.btn { text-decoration: none; color: inherit; display: inline-block; }
   .btn { border: 1px solid var(--border); background: var(--panel); border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
   .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .btn:disabled { opacity: 0.5; cursor: default; }
@@ -75,6 +76,7 @@
 <header>
   <div class="brand">VeriView<small id="version"></small></div>
   <div class="root" id="root"></div>
+  <a class="btn" id="btn-editor" href="/editor" target="_blank" title="Draw a circuit from gates and turn it into Verilog" data-t>✎ Gate editor</a>
   <button class="btn" id="btn-lang" title="Language / Dil">TR</button>
   <button class="btn" id="btn-theme" title="Toggle light/dark theme">◐</button>
 </header>
@@ -143,7 +145,8 @@ const DATA = /*__LAUNCHER_DATA__*/null;
     "Building…": "Oluşturuluyor…", "Looking for top modules…": "Top modüller aranıyor…", "Done.": "Tamam.",
     "Open": "Aç", "Rebuild": "Yeniden oluştur", "Download": "İndir", "live": "canlı", "built {n}×": "{n}× oluşturuldu",
     "The browser blocked the new tab — click Open below.": "Tarayıcı yeni sekmeyi engelledi — aşağıdaki Aç'a tıkla.",
-    "Select files first.": "Önce dosya seç.", "Use this folder": "Bu klasörü kullan",
+    "Select files first.": "Önce dosya seç.", "✎ Gate editor": "✎ Kapı editörü",
+    "Draw a circuit from gates and turn it into Verilog": "Kapılardan devre çiz ve Verilog'a çevir", "Use this folder": "Bu klasörü kullan",
     "Select this folder's .f file list, or all its source files": "Bu klasörün .f dosya listesini, yoksa tüm kaynak dosyalarını seç",
   };
   let LANG = "en";

@@ -77,3 +77,24 @@ def test_http_server_security(proj):
         server.shutdown()
         server.server_close()
         la.shutdown()
+
+
+def test_editor_save(proj):
+    la = Launcher(proj)
+    src = "module ha(input a, b, output s); assign s = a ^ b; endmodule\n"
+    r = la.save({"path": "drawn/half_adder.v", "text": src})
+    assert r == {"path": "drawn/half_adder.v"} and (proj / "drawn" / "half_adder.v").is_file()
+    assert la.save({"path": "drawn/half_adder.v", "text": "x"}) == {"exists": True, "path": "drawn/half_adder.v"}
+    assert la.save({"path": "drawn/half_adder.v", "text": "y", "overwrite": True})["path"] == "drawn/half_adder.v"
+    assert (proj / "drawn" / "half_adder.v").read_text() == "y"
+    with pytest.raises(VeriViewError, match="Only .v"):
+        la.save({"path": "evil.py", "text": "import os"})
+    with pytest.raises(VeriViewError, match="outside"):
+        la.save({"path": "../outside.v", "text": "x"})
+
+
+def test_editor_page_served(proj):
+    from veriview.launcher import editor_page
+    html = editor_page().decode()
+    assert "function toVerilog" in html and '"launcher": true' in html
+    assert html.count("</script>") == 2

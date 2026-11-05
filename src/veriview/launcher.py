@@ -29,6 +29,7 @@ from .render import open_url
 from .watch import LIVE_RELOAD_JS, snapshot, watched_files
 
 TEMPLATE = Path(__file__).with_name("launcher.html")
+EDITOR = Path(__file__).with_name("editor.html")
 HDL_SUFFIXES = (".v", ".sv", ".svh", ".vh", ".f")
 HIDDEN_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", "build", "dist"}
 
@@ -196,6 +197,19 @@ class Launcher:
             return {"text": "", "error": str(e), "log": lines}
         return {"text": text, "log": lines}
 
+    def save(self, req: dict[str, Any]) -> dict[str, Any]:
+        """Write a Verilog file from the gate editor (only .v/.sv, below the start folder)."""
+        rel = str(req.get("path", "")).strip()
+        if not rel.endswith((".v", ".sv")):
+            raise VeriViewError("Only .v / .sv files can be saved.")
+        p = self.safe(rel)
+        if p.exists() and not req.get("overwrite"):
+            return {"exists": True, "path": p.relative_to(self.root).as_posix()}
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(str(req.get("text", "")), encoding="utf-8")
+        log.info(f"Gate editor saved {p}")
+        return {"path": p.relative_to(self.root).as_posix()}
+
     def shutdown(self) -> None:
         for b in self.builds.values():
             b.stop.set()
@@ -205,6 +219,13 @@ class Launcher:
 def page(launcher: Launcher) -> bytes:
     data = json.dumps({"version": __version__, "root": str(launcher.root)}).replace("<", "\\u003c")
     return TEMPLATE.read_text(encoding="utf-8").replace("/*__LAUNCHER_DATA__*/null", data).encode("utf-8")
+
+
+def editor_page() -> bytes:
+    data = json.dumps({"version": __version__, "launcher": True})
+    core = Path(__file__).with_name("editor_core.js").read_text(encoding="utf-8").replace("</", "<\\/")
+    return (EDITOR.read_text(encoding="utf-8").replace("/*__EDITOR_CORE__*/", core, 1)
+            .replace("/*__EDITOR_DATA__*/null", data).encode("utf-8"))
 
 
 def make_handler(launcher: Launcher, allowed_hosts: set[str]):
@@ -231,6 +252,8 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
             path, _, query = self.path.partition("?")
             if path in ("/", "/index.html"):
                 return self._send(200, "text/html; charset=utf-8", page(launcher))
+            if path == "/editor":
+                return self._send(200, "text/html; charset=utf-8", editor_page())
             if path.startswith("/view/"):
                 b = launcher.builds.get(path[len("/view/"):])
                 if not b or not b.html.is_file():
@@ -268,6 +291,8 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
                     return self._json(launcher.build({}, bid=req.get("id")))
                 if route == "/api/report":
                     return self._json(launcher.report(req))
+                if route == "/api/save":
+                    return self._json(launcher.save(req))
                 return self._json({"error": "unknown API"}, 404)
             except VeriViewError as e:
                 return self._json({"error": str(e)}, 400)
@@ -293,13 +318,13 @@ def serve(root: Path, port: int) -> tuple[ThreadingHTTPServer, Launcher, str]:
     raise VeriViewError(f"Could not start the launcher on ports {port}-{port + 19}: {last}")
 
 
-def launch(root: Path, port: int = 8765, open_browser: bool = True) -> int:
+def launch(root: Path, port: int = 8765, open_browser: bool = True, start: str = "") -> int:
     if not root.is_dir():
         raise VeriViewError(f"Not a folder: {root}")
     server, launcher, url = serve(root, port)
     log.info(f"VeriView launcher: {url}  (folder: {launcher.root}) — Ctrl+C to stop")
     if open_browser:
-        open_url(url)
+        open_url(url + start.lstrip("/"))
     try:
         server.serve_forever()
     except KeyboardInterrupt:

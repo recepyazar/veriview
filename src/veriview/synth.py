@@ -70,7 +70,8 @@ def stage_commands(stage: str, flatten: bool) -> list[str]:
     if flatten:
         cmds.append("flatten")
     if stage == "elab":
-        cmds += ["setattr -set keep 1 */c:* */t:$scopeinfo %d", "opt_clean -purge"]
+        # plain opt_clean (no -purge): keep the names of intermediate nets as written
+        cmds += ["setattr -set keep 1 */c:* */t:$scopeinfo %d", "opt_clean"]
     elif stage == "opt":
         cmds += ["opt", "opt_clean -purge"]
     elif stage == "gate":

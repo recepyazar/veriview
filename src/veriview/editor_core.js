@@ -2,7 +2,8 @@
  * Verilog generation. Inlined into editor.html by the launcher; also loadable with
  * node (module.exports) for tests.
  *
- * design: {nodes: [{id, type, name?, n?, x, y}], wires: [{from: {node, pin}, to: {node, pin}}]}
+ * design: {nodes: [{id, type, name?, label?, n?, x, y}], wires: [{from: {node, pin}, to: {node, pin}}]}
+ *         name:  port name (in/out); label: optional name of the net a gate / flip-flop drives
  * types:  in, out, const0, const1, not, buf, and/or/nand/nor/xor/xnor (n = 2..4 inputs),
  *         mux (A, B, S -> Y = S ? B : A), dff (D, CLK -> Q), dffr (D, CLK, RST_N -> Q)
  */
@@ -27,8 +28,19 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
   const ins = D.nodes.filter((n) => n.type === "in"), outs = D.nodes.filter((n) => n.type === "out");
   const names = new Set();
   for (const p of [...ins, ...outs]) { if (names.has(p.name)) warn.push(t("duplicate port name {name}", { name: p.name })); names.add(p.name); }
+  // net names: user labels where valid and unique, otherwise <type><id> / q<id>
+  const isId = (s) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s || "");
+  const KEYWORDS = new Set("module endmodule input output inout wire reg assign always posedge negedge begin end if else case endcase".split(" "));
+  const taken = new Set([...ins, ...outs].map((p) => p.name));
+  const labelOf = new Map();
+  for (const n of D.nodes) {
+    if (!n.label || ["in", "out", "const0", "const1"].includes(n.type)) continue;
+    if (!isId(n.label) || KEYWORDS.has(n.label)) { warn.push(t("invalid name {name} (letters, digits, _; not a keyword)", { name: n.label })); continue; }
+    if (taken.has(n.label)) { warn.push(t("name {name} is used twice", { name: n.label })); continue; }
+    taken.add(n.label); labelOf.set(n.id, n.label);
+  }
   const net = (nd) => nd.type === "in" ? ident(nd.name) : nd.type === "const0" ? "1'b0" : nd.type === "const1" ? "1'b1"
-    : (nd.type === "dff" || nd.type === "dffr") ? `q${nd.id}` : `${nd.type}${nd.id}`;
+    : labelOf.get(nd.id) || ((nd.type === "dff" || nd.type === "dffr") ? `q${nd.id}` : `${nd.type}${nd.id}`);
   const drv = (nd, pin) => {
     const w = D.wires.find((x) => x.to.node === nd.id && x.to.pin === pin);
     if (!w || !byId[w.from.node]) {

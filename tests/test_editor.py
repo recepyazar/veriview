@@ -96,3 +96,36 @@ def test_drawn_design_simulates_correctly(tmp_path, stage):
             ["set", "rst_n", 0], ["get", "q"]]
     exp += [1, 0]
     assert simulate(tmp_path, data, stage, ops) == exp
+
+
+def test_net_names(tmp_path):
+    d = {"nodes": [node(1, "in", name="a"), node(2, "in", name="b"), node(3, "and", label="carry"),
+                   node(4, "xor", label="a"), node(5, "or", label="wire"), node(6, "not", label="9x"),
+                   node(7, "dff", label="state"), node(8, "out", name="c")],
+         "wires": [W(1, "Y", 3, "A"), W(2, "Y", 3, "B"), W(3, "Y", 8, "A"), W(3, "Y", 7, "D")]}
+    res = to_verilog(tmp_path, d)
+    text, warn = res["text"], " | ".join(res["warn"])
+    assert "assign carry = a & b;" in text and "assign c = carry;" in text
+    assert "reg  state;" in text and "state <= carry;" in text
+    # clashes with a port, keywords and invalid identifiers fall back to the automatic name
+    assert "name a is used twice" in warn and "assign xor4 =" in text
+    assert "invalid name wire" in warn and "assign or5 =" in text
+    assert "invalid name 9x" in warn and "assign not6 =" in text
+
+
+@needs_tools
+def test_named_design_compiles(tmp_path):
+    d = {"nodes": [node(1, "in", name="a"), node(2, "in", name="b"), node(3, "xor", label="sum_bit"),
+                   node(4, "and", label="carry"), node(5, "out", name="s"), node(6, "out", name="c")],
+         "wires": [W(1, "Y", 3, "A"), W(2, "Y", 3, "B"), W(1, "Y", 4, "A"), W(2, "Y", 4, "B"),
+                   W(3, "Y", 5, "A"), W(4, "Y", 6, "A")]}
+    src = tmp_path / "ha.v"
+    src.write_text(to_verilog(tmp_path, d, "ha")["text"])
+    data = build(tmp_path, src, stage="elab")
+    ops = []
+    for a, b in itertools.product((0, 1), repeat=2):
+        ops += [["set", "a", a], ["set", "b", b], ["get", "s"], ["get", "c"]]
+    assert simulate(tmp_path, data, "elab", ops) == [0, 0, 1, 0, 1, 0, 0, 1]
+    # the names survive into the viewer's RTL view (the optimized view may merge them into the ports)
+    names = json.loads(data.read_text())["views"]["elab"]["modules"]["ha"]["hier"]["net"]["names"]
+    assert {"sum_bit", "carry"} <= set(names)

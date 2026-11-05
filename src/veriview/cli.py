@@ -166,6 +166,20 @@ def _output_path(args: argparse.Namespace, inputs: list[str], suffix: str, stem:
     return Path(f"{stem}{suffix}")
 
 
+def _report_top(args: argparse.Namespace, synth: Synthesizer, chosen: str) -> None:
+    """With several possible top modules, say which one was picked and how to choose another."""
+    if args.top or args.select:
+        return
+    try:
+        cands = synth.top_candidates()
+    except VeriViewError:
+        return
+    others = [c for c in cands if c != chosen]
+    if others:
+        shown = ", ".join(others[:8]) + (" ..." if len(others) > 8 else "")
+        log.info(f"Top module: {chosen}  (other candidates: {shown}; choose one with -t NAME)")
+
+
 def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, work: Path,
               stages: list[str]) -> Path:
     stage_netlists = {}
@@ -177,6 +191,8 @@ def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, w
         synth.synthesize(args.top, json_path, stage=st)
         netlist = json.loads(json_path.read_text(encoding="utf-8"))
         root = find_top(netlist["modules"])
+        if st == stages[0]:
+            _report_top(args, synth, root)
         if args.select:
             try:
                 root, insts = resolve_instance(netlist["modules"], root, args.select)
@@ -366,6 +382,7 @@ def _build(args: argparse.Namespace, inputs: list[str], html_stages: list[str]) 
 
         netlist = json.loads(json_path.read_text(encoding="utf-8"))
         root = find_top(netlist["modules"])
+        _report_top(args, synth, root)
         stem = None
         if args.select:
             root, insts = resolve_instance(netlist["modules"], root, args.select)

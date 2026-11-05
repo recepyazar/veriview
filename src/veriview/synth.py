@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -230,6 +231,26 @@ class Synthesizer:
             self._yosys(fe, script, f"synth_{stage or self.stage}.ys")
 
         self._with_frontend(action)
+
+    def top_candidates(self) -> list[str]:
+        """Modules that no other module instantiates (possible top modules), sorted."""
+        out = self.work_dir / "candidates.json"
+
+        def base(n: str) -> str:
+            if n.startswith(("$paramod", "$abstract")):
+                parts = n.split("\\")
+                return parts[1] if len(parts) > 1 else n
+            return n.lstrip("\\")
+
+        def action(fe: str) -> list[str]:
+            script = self._read_commands(fe, None) + ["hierarchy", "proc", f"write_json {yosys_quote(str(out))}"]
+            self._yosys(fe, script, "candidates.ys")
+            mods = json.loads(out.read_text()).get("modules", {})
+            used = {base(c["type"]) for m in mods.values() for c in m.get("cells", {}).values()
+                    if not c["type"].startswith("$") or c["type"].startswith("$paramod")}
+            return sorted({base(n) for n in mods} - used)
+
+        return self._with_frontend(action)
 
     def list_modules(self) -> list[str]:
         out = self.work_dir / "modules.txt"

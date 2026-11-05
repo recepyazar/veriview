@@ -3,7 +3,7 @@
 ## 6.0.0
 
 - **Simpler commands — the viewer is the default**: `veriview design.sv` writes `design.html` and opens it in the browser (when no `-o` is given in a terminal). The output kind follows `-o` (`.html` viewer / `.svg` schematic); `--svg` for an SVG without naming the file. **Breaking:** previously the default was an SVG.
-- **Folders as input**: `veriview rtl/` uses the folder's `.f` file list, or all `.v`/`.sv` files in it.
+- **Folders as input**: `veriview rtl/` uses the folder's `.f` file list, or all `.v`/`.sv` files in it. `-t NAME` (optional) picks any module as the top; with several possible tops VeriView names the one it picked and lists the other candidates.
 - `--open` / `--no-open`; quick-start examples at the top of `--help`.
 - **Türkçe arayüz**: the viewer is available in Turkish (automatic for a Turkish browser, **TR/EN** button, `--lang tr`); a test makes sure every UI string has a translation.
 

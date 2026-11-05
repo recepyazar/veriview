@@ -86,6 +86,8 @@ veriview design.f --watch     # live: the browser reloads whenever you save
 veriview design.sv -o x.svg   # a plain SVG schematic instead of the viewer
 ```
 
+Add `-t NAME` to make any module the top, e.g. a sub-block of the folder: `veriview rtl/ -t alu` (or simply `veriview rtl/ alu`). If a folder contains several unrelated top-level modules, VeriView tells you which one it picked and lists the others.
+
 That is all you need day to day: the top module is detected automatically and every feature (views, flatten, timing, FSM diagrams, simulation, source code) is a button in the viewer. The full syntax is
 
 ```bash

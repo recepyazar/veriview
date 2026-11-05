@@ -1,6 +1,7 @@
 """End-to-end tests: run VeriView on the example designs (needs yosys + netlistsvg)."""
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -355,3 +356,20 @@ def test_html_viewer_sources_sv2v(tmp_path):
     srcs = _viewer_data(out)["sources"]
     conv = [v for p, v in srcs.items() if p.endswith(".sv2v.v")]
     assert conv and "sv2v" in conv[0]["note"]
+
+
+def test_folder_with_several_tops_reports_candidates(tmp_path, monkeypatch, capsys):
+    rtl = tmp_path / "rtl"
+    rtl.mkdir()
+    for f in ("counter.sv", "rca/ha.sv", "rca/fa.sv", "rca/rca.sv"):
+        shutil.copy(EX / f, rtl)
+    monkeypatch.chdir(tmp_path)
+    assert main(["-q", str(rtl), "--html-stages", "opt"]) == 0  # -q hides INFO; run again to see it
+    assert main([str(rtl), "--html-stages", "opt", "-o", str(tmp_path / "a.html")]) == 0
+    err = capsys.readouterr().err
+    assert re.search(r"Top module: (counter|rca)  \(other candidates: (rca|counter); choose one with -t NAME\)", err)
+    # choosing a lower module from the same folder
+    assert main([str(rtl), "-t", "fa", "--html-stages", "opt", "-o", str(tmp_path / "fa.html")]) == 0
+    assert "other candidates" not in capsys.readouterr().err
+    data = _viewer_data(tmp_path / "fa.html")
+    assert data["views"]["opt"]["top"] == "fa" and set(data["views"]["opt"]["modules"]) == {"fa", "ha"}

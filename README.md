@@ -15,6 +15,7 @@ It wraps **Yosys** and **netlistsvg** (plus, optionally, **sv2v** or **yosys-sla
 - **File lists (`.f`)** – `+incdir+`, `+define+`, nested `-f`/`-F`, `-v`, `$VAR`/`${VAR}`/`$(VAR)` and comments.
 - **Include dirs & defines** – `-I` and `-D` on the command line.
 - **Interactive HTML viewer** – `--html` writes a single self-contained page: click into sub-modules, switch between RTL / optimized / gate views, flatten any module, and click a net to highlight its fan-in or fan-out cone.
+- **State machine diagrams** – FSMs are detected automatically and drawn with their states, encodings, outputs and the original source conditions; in simulation mode the current state lights up.
 - **Code ↔ schematic** – the viewer shows the RTL source next to the schematic: click a cell to see the line it came from, click a line to see its cells.
 - **Gate-level timing** – gate delays, setup/hold checks, critical path, fmax and area: in the viewer (**⏱ Timing**) or as a report (`--timing 2ns`).
 - **Simulation mode** – drive the inputs, clock the design and watch the 1-valued wires light up, right in the schematic (also inside sub-modules).
@@ -96,6 +97,7 @@ veriview [options] <input>... [top_module]
 | `--cone <signal>` | Draw only the logic driving `signal`, stopping at registers (repeatable). |
 | `--split` | Render every module into its own SVG. |
 | `--html` | Write an interactive HTML viewer instead of an SVG (default output: `<top>.html`). |
+| `--fsm` | Print the state machines found in the design (states, encodings, transitions); with `-o file.dot` also write a Graphviz diagram. |
 | `--timing <period>` | Print a gate-level static timing report (setup/hold, critical path, fmax, area), e.g. `--timing 2ns` or `--timing 250MHz`. |
 | `--input-delay`, `--output-delay`, `--uncertainty` | Timing constraints for `--timing` (defaults `100ps`, `0ps`, `0ps`). |
 | `--html-stages <list>` | Views embedded in the HTML viewer (default `elab,opt,gate`; `--stage` is shown first). |
@@ -135,6 +137,23 @@ The output is one HTML file with every module of the design embedded (no interne
 - The current position and view are kept in the URL (`rca.html#/fa_block[3].fa_inst?stage=gate&flat=1`), so the back button works and links point to a specific view.
 
 Rendering every view takes longer for big designs; use `--html-stages opt` to embed only one view.
+
+### State machine diagrams
+
+VeriView finds state machines with Yosys' FSM extraction and draws them. Press **◇ FSM** in the viewer (enabled for modules that contain one):
+
+<img src="./docs/fsm.png" alt="VeriView FSM diagram" width="800"/>
+
+- **States** show their name (from an `enum` or from `localparam`s), their encoding and the Moore outputs that are high; the reset state has a double circle. Drag states to rearrange the diagram (the layout is remembered).
+- **Transitions** are labelled with the original source expressions (e.g. `car && timer >= 3'd4`); parallel transitions are merged and their conditions simplified.
+- **With ▶ Simulate** the current state is highlighted in green and the transition just taken in orange — step the clock or use the waveform panel and watch the FSM move.
+- **With </> Code** click a state to see where it is used, or a transition to see the code of its condition.
+- **Several FSMs:** a selector switches between the state machines of one module; state machines in sub-modules are listed as links that open them.
+- **SVG** downloads the diagram.
+
+On the command line, `veriview design.sv --fsm` prints the states and transitions, and `--fsm -o fsm.dot` writes a Graphviz file.
+
+Notes: VeriView also shows small FSMs that Yosys would normally skip because re-encoding them would not pay off. A register is recognised as a state machine when it is only compared against constants (the usual `case (state)` style; e.g. `if (next == state)` prevents detection). Mealy outputs that are computed outside the state logic are not shown on the transitions. Try the examples `ex_design/fsm/traffic.sv` (Moore, `enum`) and `ex_design/fsm/seq_fsm.v` (Mealy-style, `localparam`, synchronous reset).
 
 ### Source code panel
 
@@ -278,6 +297,9 @@ Example designs live in `ex_design/`:
 | `mux/mux_basic.sv` | 2:1 multiplexer |
 | `mux/mux.sv` | N:1 multiplexer with unpacked array ports (needs sv2v or yosys-slang) |
 | `pipe_mac.sv` | Pipelined multiply-accumulate (good for timing analysis) |
+| `fsm/traffic.sv` | Traffic light controller: Moore FSM with an `enum` and a timer |
+| `fsm/seq_fsm.v` | "1011" sequence detector: Verilog-2001 FSM with `localparam` states and a synchronous reset |
+| `fsm/multi_fsm.sv` (`fsm.f`) | Several FSMs: two in one module (selector) and two in sub-modules (links) |
 
 All results below are generated with `make examples`.
 
@@ -373,6 +395,7 @@ Code layout (`src/veriview/`):
 | `html.py`, `viewer.html` | interactive HTML viewer (`--html`) |
 | `sim.js` | browser simulation engine (DOM-free; inlined into the viewer, tested with node) |
 | `timing.js`, `timing_report.py` | static timing engine (viewer and `--timing`) |
+| `fsm.py` | state machine extraction (`$fsm` cells → states, transitions, conditions), `--fsm` |
 | `scope.py` | `--select`, `--depth`, `--cone` (operating on the JSON netlist) |
 | `watch.py` | `--watch`: file polling, local live-reload server |
 | `tools.py` | finding/installing yosys, netlistsvg, sv2v |

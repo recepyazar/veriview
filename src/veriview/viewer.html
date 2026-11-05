@@ -135,6 +135,20 @@
   #sim-table input[type="text"] { width: 90px; font: inherit; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
   #sim-cycle { color: var(--muted); font-size: 13px; }
   [hidden] { display: none !important; }
+  /* FSM diagram */
+  #fsmwrap { position: absolute; inset: 8px 12px 12px; background: var(--paper); border: 1px solid var(--border);
+    border-radius: 8px; display: flex; flex-direction: column; overflow: hidden; }
+  #fsmwrap .fsm-head { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  #fsm-info { flex: 1; color: var(--muted); }
+  #fsm-below { padding: 4px 10px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--border); }
+  #fsm-below:empty { display: none; }
+  #fsm-below a { color: var(--accent); }
+  #fsm-info b { color: var(--text); }
+  #fsm-pick { padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+  #fsmview { flex: 1; min-height: 0; }
+  #fsmview svg { width: 100%; height: 100%; display: block; filter: var(--schematic-filter); user-select: none; }
+  #fsmview .fsm-node { cursor: grab; }
+  #fsmview .fsm-edge { cursor: pointer; }
   /* source code panel */
   #code { grid-area: code; position: relative; width: 42vw; min-width: 240px; display: flex; flex-direction: column;
     min-height: 0; background: var(--panel); border-left: 1px solid var(--border); }
@@ -232,6 +246,7 @@
   </div>
   <button class="btn" id="btn-flat" aria-pressed="false" title="Flatten this module (expand all sub-modules)">Flatten</button>
   <button class="btn" id="btn-timing" aria-pressed="false" title="Static timing analysis of the gate-level netlist: gate delays, setup/hold checks, critical path">⏱ Timing</button>
+  <button class="btn" id="btn-fsm" aria-pressed="false" title="State machine diagram of this module">◇ FSM</button>
   <button class="btn" id="btn-sim" aria-pressed="false" title="Simulation mode: set inputs, clock the design and watch values propagate">▶ Simulate</button>
   <div class="group" id="sim-controls" hidden>
     <label for="sim-clk">Clock</label>
@@ -267,6 +282,15 @@
 </aside>
 <main>
   <div id="canvas" tabindex="0" aria-label="Schematic"></div>
+  <div id="fsmwrap" hidden aria-label="State machine diagram">
+    <div class="fsm-head">
+      <select id="fsm-pick" aria-label="State machine"></select>
+      <span id="fsm-info"></span>
+      <button class="btn small" id="fsm-reset" title="Forget dragged positions">Reset layout</button>
+    </div>
+    <div id="fsm-below"></div>
+    <div id="fsmview"></div>
+  </div>
   <div class="hint" id="hint">Wheel: zoom · Drag: pan · Click a sub-module to open it · Click a net for its cone (Shift: fan-out)</div>
 </main>
 <section id="wave" hidden aria-label="Waveform">
@@ -323,7 +347,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   };
 
   // ---- state & URL hash: #/inst/inst?stage=opt&flat=1 ---------------------
-  const state = { stage: DATA.defaultStage, flat: DATA.defaultFlat, sim: false, wave: false, timing: false, code: false, path: [], cone: "", notice: "" };
+  const state = { stage: DATA.defaultStage, flat: DATA.defaultFlat, sim: false, wave: false, timing: false, code: false, fsm: false, path: [], cone: "", notice: "" };
   const view = () => DATA.views[state.stage];
   const mods = () => view().modules;
 
@@ -351,6 +375,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     state.wave = state.sim && params.get("wave") === "1";
     state.timing = !state.sim && params.get("timing") === "1";
     state.code = params.get("code") === "1";
+    state.fsm = params.get("fsm") === "1";
     const path = p ? p.split("/").map(decodeURIComponent) : [];
     const valid = validPrefix(path);
     state.notice = valid.length < path.length
@@ -366,6 +391,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     if (s.sim && s.wave) q.set("wave", "1");
     if (s.timing && !s.sim) q.set("timing", "1");
     if (s.code) q.set("code", "1");
+    if (s.fsm) q.set("fsm", "1");
     location.hash = "/" + s.path.map(encodeURIComponent).join("/") + "?" + q.toString();
   };
 
@@ -615,7 +641,10 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       tbl.append(tr);
     }
   }
-  const refreshSim = () => { if (svg && state.sim) { applySim(); renderStatus(); } };
+  const refreshSim = () => {
+    if (svg && state.sim) { applySim(); renderStatus(); }
+    if (state.fsm && state.sim) { fsmTrackSim(); drawFsm(); }
+  };
   function simClick(e) {
     if (state.path.length) return;
     const g = e.target.closest && e.target.closest("g.vv-input");
@@ -1170,6 +1199,225 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   });
 
 
+  // ---- FSM diagram view ------------------------------------------------------------------
+  const FSMS = DATA.fsms || {};
+  const fsmState = { idx: 0, pos: {}, lastState: null, prevState: null, drag: null };
+  const fsmsHere = () => FSMS[moduleOf(state.path)] || [];
+  // FSMs in sub-module instances below the current position: [{path, module, names}]
+  function fsmsBelow(limit = 50) {
+    const out = [], queue = [[state.path, moduleOf(state.path)]], seen = new Set();
+    while (queue.length && out.length < limit) {
+      const [p, m] = queue.shift();
+      for (const [inst, child] of Object.entries(mods()[m].children)) {
+        const cp = [...p, inst];
+        if (FSMS[child] && !seen.has(cp.join("/"))) { seen.add(cp.join("/")); out.push({ path: cp, module: child, names: FSMS[child].map((f) => f.name) }); }
+        queue.push([cp, child]);
+      }
+    }
+    return out;
+  }
+  function renderFsmBelow(el, below) {
+    el.textContent = "";
+    if (!below.length) return;
+    el.append(document.createTextNode(below.length && fsmsHere().length ? "Also in sub-modules: " : "State machines in sub-modules: "));
+    below.forEach((b, i) => {
+      if (i) el.append(document.createTextNode(" · "));
+      const a = document.createElement("a");
+      a.href = "#"; a.textContent = `${b.path.join("/")} (${mods()[b.module].label}): ${b.names.join(", ")}`;
+      a.onclick = (ev) => { ev.preventDefault(); fsmState.idx = 0; go({ path: b.path, fsm: true }); };
+      el.append(a);
+    });
+  }
+  const FSTORE = "veriview-fsmpos1:";
+  const fsmKey = (f) => FSTORE + moduleOf(state.path) + ":" + f.name;
+  function fsmLayout(f) {
+    const n = f.states.length, R = Math.max(130, n * 42), cx = R + 170, cy = R + 120;
+    let pos = null;
+    try { pos = JSON.parse(localStorage.getItem(fsmKey(f)) || "null"); } catch (e) {}
+    if (pos && pos.length === n) return { pos, center: { x: cx, y: cy } };
+    // order: breadth-first from the reset state, so the diagram reads like the behaviour
+    const order = [], seen = new Set(), queue = [f.reset ?? 0];
+    while (queue.length) {
+      const s = queue.shift();
+      if (seen.has(s)) continue;
+      seen.add(s); order.push(s);
+      for (const t of f.transitions) if (t.from === s && !seen.has(t.to)) queue.push(t.to);
+    }
+    for (let i = 0; i < n; i++) if (!seen.has(i)) order.push(i);
+    pos = new Array(n);
+    order.forEach((s, k) => {
+      const a = -Math.PI / 2 + (2 * Math.PI * k) / n;
+      pos[s] = { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
+    });
+    return { pos, center: { x: cx, y: cy } };
+  }
+  const short = (t, n = 34) => (t.length > n ? t.slice(0, n - 1) + "…" : t);
+  function drawFsm() {
+    const box = $("fsmview"), list = fsmsHere();
+    if (!state.fsm) return;
+    $("fsm-pick").hidden = list.length < 2;
+    const below = fsmsBelow();
+    renderFsmBelow($("fsm-below"), below);
+    if (!list.length) {
+      box.innerHTML = `<p class="t-msg">No state machine in this module${below.length ? " — open one of the sub-modules listed above." : "."}</p>`;
+      $("fsm-info").textContent = "";
+      return;
+    }
+    fsmState.idx = Math.min(fsmState.idx, list.length - 1);
+    const f = list[fsmState.idx];
+    const { pos, center } = fsmState.pos[fsmKey(f)] || fsmLayout(f);
+    fsmState.pos[fsmKey(f)] = { pos, center };
+    const r = 46, NS = SVGNS;
+    const cur = state.sim ? fsmState.lastState : null, prev = state.sim ? fsmState.prevState : null;
+    const e = (tag, attrs, text) => { const el = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v); if (text !== undefined) el.textContent = text; return el; };
+    const svgf = e("svg", { class: "fsm", xmlns: NS });
+    const defs = e("defs", {});
+    for (const [id, col] of [["vv-arr", "#475467"], ["vv-arr-hl", "#e8590c"]]) {
+      const m = e("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" });
+      m.append(e("path", { d: "M0,0 L10,5 L0,10 z", fill: col }));
+      defs.append(m);
+    }
+    svgf.append(defs);
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const grow = (x, y, pad = 0) => { minX = Math.min(minX, x - pad); minY = Math.min(minY, y - pad); maxX = Math.max(maxX, x + pad); maxY = Math.max(maxY, y + pad); };
+    const edgeLayer = e("g", {}), nodeLayer = e("g", {});
+    svgf.append(edgeLayer, nodeLayer);
+    const pairs = new Set(f.transitions.map((t) => `${t.from}>${t.to}`));
+    // label boxes already placed (nodes count as obstacles too), for simple collision avoidance
+    const boxes = f.states.map((_, si) => ({ x0: pos[si].x - r, y0: pos[si].y - r, x1: pos[si].x + r, y1: pos[si].y + r }));
+    const hits = (b) => boxes.some((o) => b.x0 < o.x1 && o.x0 < b.x1 && b.y0 < o.y1 && o.y0 < b.y1);
+    f.transitions.forEach((t, ti) => {
+      const a = pos[t.from], b = pos[t.to], hl = prev !== null && cur !== null && t.from === prev && t.to === cur && prev !== cur;
+      const col = hl ? "#e8590c" : "#475467", mark = `url(#${hl ? "vv-arr-hl" : "vv-arr"})`;
+      const g = e("g", { class: "fsm-edge", "data-t": ti });
+      let d, lx, ly;
+      if (t.from === t.to) {
+        let ux = a.x - center.x, uy = a.y - center.y; const L = Math.hypot(ux, uy) || 1; ux /= L; uy /= L;
+        if (L < 1) { ux = 0; uy = -1; }
+        const rot = (ang) => ({ x: ux * Math.cos(ang) - uy * Math.sin(ang), y: ux * Math.sin(ang) + uy * Math.cos(ang) });
+        const s1 = rot(-0.45), s2 = rot(0.45), c1 = rot(-0.7), c2 = rot(0.7);
+        d = `M ${a.x + s1.x * r} ${a.y + s1.y * r} C ${a.x + c1.x * r * 2.8} ${a.y + c1.y * r * 2.8} ${a.x + c2.x * r * 2.8} ${a.y + c2.y * r * 2.8} ${a.x + s2.x * (r + 2)} ${a.y + s2.y * (r + 2)}`;
+        lx = a.x + ux * (r * 2.4 + 14); ly = a.y + uy * (r * 2.4 + 14);
+      } else {
+        const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+        const off = pairs.has(`${t.to}>${t.from}`) ? 0.22 * L : 0.06 * L;
+        const cxp = (a.x + b.x) / 2 + nx * off, cyp = (a.y + b.y) / 2 + ny * off;
+        const trim = (p, q, k) => { const vx = q.x - p.x, vy = q.y - p.y, l = Math.hypot(vx, vy) || 1; return { x: p.x + (vx / l) * k, y: p.y + (vy / l) * k }; };
+        const p1 = trim(a, { x: cxp, y: cyp }, r), p2 = trim(b, { x: cxp, y: cyp }, r + 2);
+        d = `M ${p1.x} ${p1.y} Q ${cxp} ${cyp} ${p2.x} ${p2.y}`;
+        const at = (k) => ({ x: (1 - k) * (1 - k) * p1.x + 2 * (1 - k) * k * cxp + k * k * p2.x,
+          y: (1 - k) * (1 - k) * p1.y + 2 * (1 - k) * k * cyp + k * k * p2.y });
+        ({ x: lx, y: ly } = at(0.5));
+        g._at = at;
+      }
+      g.append(e("path", { d, fill: "none", stroke: col, "stroke-width": hl ? 3 : 1.6, "marker-end": mark }));
+      const outs = Object.entries(t.outputs || {}).filter(([, v]) => v).map(([k]) => k);
+      const label = short(t.cond === "1" ? "always" : t.cond) + (outs.length ? ` / ${short(outs.join(", "), 20)}` : "");
+      const w = label.length * 6.4 + 10;
+      if (g._at) {  // slide the label along its arrow until it does not overlap another label or a state
+        for (const k of [0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8]) {
+          const q = g._at(k);
+          if (!hits({ x0: q.x - w / 2, y0: q.y - 10, x1: q.x + w / 2, y1: q.y + 10 })) { lx = q.x; ly = q.y; break; }
+        }
+      }
+      boxes.push({ x0: lx - w / 2, y0: ly - 10, x1: lx + w / 2, y1: ly + 10 });
+      g.append(e("rect", { x: lx - w / 2, y: ly - 9, width: w, height: 17, rx: 4, fill: "#ffffff", stroke: hl ? col : "#d0d5dd", "fill-opacity": 0.92 }));
+      g.append(e("text", { x: lx, y: ly + 4, "text-anchor": "middle", "font-size": 11, "font-family": "ui-monospace, Menlo, monospace", fill: hl ? col : "#344054" }, label));
+      g.append(e("title", {}, `${f.states[t.from].name} → ${f.states[t.to].name}\nwhen: ${t.cond}` + (outs.length ? `\noutputs: ${outs.join(", ")}` : "")));
+      edgeLayer.append(g);
+      grow(lx, ly, w / 2 + 4);
+    });
+    f.states.forEach((st, si) => {
+      const p = pos[si], isCur = cur === si;
+      const g = e("g", { class: "fsm-node", "data-s": si, transform: `translate(${p.x},${p.y})` });
+      g.append(e("circle", { r, fill: isCur ? "#d1fadf" : "#ffffff", stroke: isCur ? "#15a34a" : "#344054", "stroke-width": isCur ? 3.5 : 1.8 }));
+      if (si === f.reset) g.append(e("circle", { r: r - 5, fill: "none", stroke: isCur ? "#15a34a" : "#344054", "stroke-width": 1.2 }));
+      const on = Object.entries(st.outputs || {}).filter(([, v]) => v).map(([k]) => k);
+      const y0 = on.length ? -8 : -1;
+      g.append(e("text", { y: y0, "text-anchor": "middle", "font-size": 12, "font-weight": 700, "font-family": "system-ui, sans-serif", fill: "#101828" }, short(st.name, 12)));
+      g.append(e("text", { y: y0 + 14, "text-anchor": "middle", "font-size": 10, "font-family": "ui-monospace, Menlo, monospace", fill: "#667085" }, st.code));
+      // Moore outputs that are high in this state (inside the circle, so they never collide with loops)
+      if (on.length) g.append(e("text", { y: y0 + 28, "text-anchor": "middle", "font-size": 9.5, "font-family": "ui-monospace, Menlo, monospace", fill: "#15a34a" }, short(on.join(", "), 14)));
+      g.append(e("title", {}, `${st.name} (${st.code})${si === f.reset ? " — reset state" : ""}` + (on.length ? `\noutputs high: ${on.join(", ")}` : "")));
+      nodeLayer.append(g);
+      grow(p.x, p.y, r + 24);
+    });
+    const pad = 20;
+    svgf.setAttribute("viewBox", `${minX - pad} ${minY - pad} ${maxX - minX + 2 * pad} ${maxY - minY + 2 * pad}`);
+    box.textContent = "";
+    box.append(svgf);
+    // drag states around (positions are remembered per FSM)
+    svgf.addEventListener("pointerdown", (ev) => {
+      const node = ev.target.closest && ev.target.closest(".fsm-node");
+      if (!node) return;
+      ev.preventDefault();
+      const si = +node.dataset.s, inv = svgf.getScreenCTM().inverse();
+      const pt = (x, y) => { const q = svgf.createSVGPoint(); q.x = x; q.y = y; return q.matrixTransform(inv); };
+      const start = pt(ev.clientX, ev.clientY), p0 = { ...pos[si] };
+      let movedNode = false;
+      const move = (m) => {
+        const q = pt(m.clientX, m.clientY);
+        if (!movedNode && Math.hypot(q.x - start.x, q.y - start.y) < 3) return;
+        movedNode = true;
+        pos[si] = { x: p0.x + q.x - start.x, y: p0.y + q.y - start.y };
+        node.setAttribute("transform", `translate(${pos[si].x},${pos[si].y})`);
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+        if (movedNode) { try { localStorage.setItem(fsmKey(f), JSON.stringify(pos)); } catch (e) {} drawFsm(); }
+        else fsmClickState(f, si);
+      };
+      window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+    });
+    svgf.addEventListener("click", (ev) => {
+      const edge = ev.target.closest && ev.target.closest(".fsm-edge");
+      if (edge) fsmClickEdge(f, f.transitions[+edge.dataset.t]);
+    });
+    const name = state.sim && cur !== null ? ` · current state <b>${escapeHtml(f.states[cur].name)}</b>` : "";
+    $("fsm-info").innerHTML = `<b>${escapeHtml(f.name)}</b>: ${f.states.length} states, ${f.transitions.length} transitions` + name;
+  }
+  // code links: a state -> the lines naming it; a transition -> its condition expressions
+  function fsmClickState(f, si) {
+    if (!state.code) return;
+    const nm = f.states[si].name, re = new RegExp(`\\b${nm.replace(/[^\w]/g, "")}\\b`);
+    const files = new Set(f.inputs.map((i) => (parseSrc(i.src)[0] || {}).file).filter(Boolean));
+    const ranges = [];
+    for (const file of (files.size ? files : Object.keys(SOURCES))) {
+      SOURCES[file].text.split("\n").forEach((line, i) => { if (re.test(line)) ranges.push({ file, l1: i + 1, l2: i + 1 }); });
+    }
+    markLines(ranges);
+    $("code-msg").textContent = `state ${nm}: ${ranges.length} line(s)`;
+  }
+  function fsmClickEdge(f, t) {
+    if (!state.code) return;
+    const used = new Set();
+    for (const p of t.pattern || []) [...p].reverse().forEach((ch, i) => { if (ch !== "-") used.add(i); });
+    const ranges = [...used].flatMap((i) => parseSrc(f.inputs[i] && f.inputs[i].src));
+    markLines(ranges);
+    $("code-msg").textContent = `${f.states[t.from].name} → ${f.states[t.to].name}`;
+  }
+  // current state from the simulation (state register value in the current module)
+  function fsmTrackSim() {
+    const list = fsmsHere();
+    if (!state.sim || !list.length) return;
+    const f = list[Math.min(fsmState.idx, list.length - 1)];
+    const key = state.path.length ? "/" + state.path.join("/") : "";
+    const bits = (hierNet(moduleOf(state.path)).names || {})[f.name];
+    if (!bits) { fsmState.lastState = null; return; }
+    const v = Number(VVSim.toBig(rd(sim.values(key), bits)));
+    const si = f.states.findIndex((s) => s.value === v);
+    if (si !== fsmState.lastState) { fsmState.prevState = fsmState.lastState; fsmState.lastState = si < 0 ? null : si; }
+  }
+  $("fsm-pick").addEventListener("change", (ev) => { fsmState.idx = +ev.target.value; drawFsm(); });
+  $("fsm-reset").onclick = () => {
+    const list = fsmsHere(); if (!list.length) return;
+    const f = list[fsmState.idx];
+    try { localStorage.removeItem(fsmKey(f)); } catch (e) {}
+    delete fsmState.pos[fsmKey(f)];
+    drawFsm();
+  };
+
+
   // ---- rendering ---------------------------------------------------------------
   // flattened views are not simulated (simulation runs on the hierarchy)
   // flattened views are not simulated (simulation runs on the hierarchy); timing always flattens
@@ -1212,6 +1460,14 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       applySim();
     }
     if (state.timing) applyTiming();
+    if (state.fsm) {
+      const list = fsmsHere(), pick = $("fsm-pick");
+      pick.textContent = "";
+      list.forEach((f, i) => { const o = document.createElement("option"); o.value = i; o.textContent = f.name; pick.append(o); });
+      fsmState.idx = Math.min(fsmState.idx, Math.max(0, list.length - 1));
+      pick.value = fsmState.idx;
+      fsmTrackSim(); drawFsm();
+    }
     renderControls(mod); renderCrumbs(); renderTree(); renderStatus();
     if (state.code) {
       codeShowModule(mod);
@@ -1243,6 +1499,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       `${v.cells} cell${v.cells === 1 ? "" : "s"}`,
       mod.src && `source: ${escapeHtml(mod.src)}`,
     ];
+    if (state.fsm && !state.cone) parts.unshift("<b>FSM</b> · drag states to rearrange · ▶ Simulate shows the current state · with </> Code open, click a state or transition");
     if (state.timing && !state.cone) parts.unshift("<b>Timing</b> · click a net or gate for its longest path, or an endpoint in the table");
     if (state.notice) parts.unshift(`<b>${escapeHtml(state.notice)}</b>`);
     statusEl.innerHTML = parts.filter(Boolean).join("  ·  ");
@@ -1257,6 +1514,13 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     if (state.timing) { f.disabled = true; f.title = "Timing analysis always uses the flattened netlist"; }
     $("timing").hidden = !state.timing;
     $("code").hidden = !state.code;
+    $("fsmwrap").hidden = !state.fsm;
+    canvas.style.visibility = state.fsm ? "hidden" : "";
+    $("btn-fsm").setAttribute("aria-pressed", String(state.fsm));
+    const nf = fsmsHere().length, nb = nf ? 0 : fsmsBelow(1).length;
+    $("btn-fsm").disabled = !nf && !nb && !state.fsm;
+    $("btn-fsm").title = nf ? `State machine diagram of this module (${nf} FSM${nf > 1 ? "s" : ""})`
+      : nb ? "State machines in sub-modules" : "No state machine found in this module or below";
     $("btn-code").setAttribute("aria-pressed", String(state.code));
     $("btn-code").disabled = !Object.keys(SOURCES).length;
     $("btn-timing").setAttribute("aria-pressed", String(state.timing));
@@ -1268,8 +1532,10 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     $("wave").hidden = !(state.sim && state.wave);
     $("btn-wave").setAttribute("aria-pressed", String(state.wave));
     for (const id of ["sim-step", "sim-n", "sim-run", "sim-reset", "sim-cycle"]) $(id).hidden = state.wave;
-    for (const el of document.querySelectorAll(".cone-ui")) el.hidden = state.sim || state.timing;
-    $("hint").textContent = state.sim
+    for (const el of document.querySelectorAll(".cone-ui")) el.hidden = state.sim || state.timing || state.fsm;
+    $("hint").textContent = state.fsm
+      ? "Drag states to rearrange · hover for details · with </> Code open, click a state or a transition"
+      : state.sim
       ? "Wheel: zoom · Drag: pan · Click an input port to toggle it · Hover a wire for its value"
       : state.timing ? "Wheel: zoom · Drag: pan · Numbers under gates are delays [ps] · Hover for arrival times · Click a net for its longest path"
       : "Wheel: zoom · Drag: pan · Click a sub-module to open it · Click a net for its cone (Shift: fan-out)";
@@ -1421,7 +1687,8 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   if (DATA.stages.length < 2) $("stages").parentElement.style.display = "none";
   $("btn-flat").onclick = () => go({ flat: !state.flat });
   $("btn-sim").onclick = () => go({ sim: !state.sim, timing: false });
-  $("btn-timing").onclick = () => go({ timing: !state.timing, sim: false,
+  $("btn-fsm").onclick = () => go({ fsm: !state.fsm, timing: false });
+  $("btn-timing").onclick = () => go({ timing: !state.timing, sim: false, fsm: false,
     stage: !state.timing && DATA.views.gate ? "gate" : state.stage });
   $("btn-wave").onclick = () => go({ wave: !state.wave });
   $("sim-clk").addEventListener("change", () => {
@@ -1436,6 +1703,16 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   $("btn-fit").onclick = fit;
   $("btn-code").onclick = () => go({ code: !state.code });
   $("btn-svg").onclick = () => {
+    if (state.fsm && $("fsmview").querySelector("svg")) {
+      const el = $("fsmview").querySelector("svg").cloneNode(true);
+      el.removeAttribute("class");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(el)], { type: "image/svg+xml" }));
+      a.download = `${moduleOf(state.path)}.fsm.svg`.replace(/[^\w.-]+/g, "_");
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      return;
+    }
     const mod = mods()[moduleOf(state.path)];
     const blob = new Blob([variant(mod).svg], { type: "image/svg+xml" });
     const a = document.createElement("a");

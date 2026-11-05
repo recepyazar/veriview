@@ -78,6 +78,11 @@ Ordered so that each step is useful on its own and builds on the previous one.
 4. **Lightweight FPGA alternative**: **nextpnr** (iCE40 / ECP5), pip-installable via the `yowasp-*` packages —
    fmax, LUT/FF usage and placement within seconds.
 
+## 3b. Done since the first release
+
+- [x] 5.7.0: gate-level timing analysis (viewer + `--timing`), source code panel (code ↔ schematic)
+- [x] 5.8.0: state machine diagrams (viewer + `--fsm`), FSM state shown during simulation
+
 ## 4. Ecosystem
 
 - [ ] VS Code extension: "Show schematic" / "Simulate" on a `.v`/`.sv` file (wraps the CLI + viewer).

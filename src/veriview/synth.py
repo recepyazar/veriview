@@ -62,6 +62,9 @@ def stage_commands(stage: str, flatten: bool) -> list[str]:
     opt:  coarse-grain optimized RTL (unused logic removed, duplicates merged).
     gate: full synthesis to simple gates and flip-flops.
     """
+    if stage == "fsm":  # internal: FSM extraction for diagrams (see fsm.py)
+        from .fsm import FSM_STAGE_COMMANDS
+        return list(FSM_STAGE_COMMANDS)
     cmds = ["proc"]
     if flatten:
         cmds.append("flatten")
@@ -210,11 +213,19 @@ class Synthesizer:
 
     # --- public API -----------------------------------------------------------
 
-    def synthesize(self, top: str | None, json_out: Path, stage: str | None = None) -> None:
+    def synthesize(self, top: str | None, json_out: Path, stage: str | None = None,
+                   subst: dict[str, str] | None = None) -> None:
+        """subst: extra {placeholder} replacements for the stage commands (see fsm.py)."""
         def action(fe: str) -> None:
             script = self._read_commands(fe, top)
             script.append(f"hierarchy -check -top {top}" if top else "hierarchy -check -auto-top")
-            script += stage_commands(stage or self.stage, self.flatten)
+            repl = {"{pre_json}": yosys_quote(str(json_out.with_suffix(".pre.json"))),
+                    "{detect_log}": yosys_path_arg(str(json_out.with_suffix(".detect.log"))), "{force}": ""}
+            repl.update(subst or {})
+            for c in stage_commands(stage or self.stage, self.flatten):
+                for k, v in repl.items():
+                    c = c.replace(k, v)
+                script.append(c)
             script.append(f"write_json {yosys_quote(str(json_out))}")
             self._yosys(fe, script, f"synth_{stage or self.stage}.ys")
 

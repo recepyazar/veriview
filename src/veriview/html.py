@@ -159,7 +159,8 @@ def strip_xml_decl(svg: str) -> str:
 
 def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work_dir: Path, *,
                  yosys: str, skin: Path | None = None, title: str | None = None,
-                 default_stage: str | None = None, default_flat: bool = False) -> None:
+                 default_stage: str | None = None, default_flat: bool = False,
+                 fsms: dict[str, Any] | None = None) -> None:
     """Write the viewer. `stage_netlists` maps stage name -> hierarchical Yosys JSON netlist."""
     if not stage_netlists:
         raise ValueError("no netlists")
@@ -213,6 +214,7 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
         "defaultStage": default_stage if default_stage in views else stages[0],
         "defaultFlat": default_flat,
         "sources": collect_sources(stage_netlists, [Path.cwd(), work_dir]),
+        "fsms": fsms or {},
         "views": views,
     }
     # '<' only occurs inside JSON strings, so escaping it keeps </script> and

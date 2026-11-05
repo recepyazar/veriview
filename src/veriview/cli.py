@@ -76,6 +76,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--input-delay", default="100ps", metavar="T", help="--timing: input arrival after the clock edge")
     p.add_argument("--output-delay", default="0ps", metavar="T", help="--timing: required output setup before the edge")
     p.add_argument("--uncertainty", default="0ps", metavar="T", help="--timing: clock uncertainty (skew/jitter)")
+    p.add_argument("--fsm", action="store_true",
+                   help="print the state machines found in the design (states, encodings, transitions); "
+                        "with -o file.dot write a Graphviz diagram")
     p.add_argument("--html-stages", default=",".join(STAGES), metavar="LIST",
                    help="stages embedded in the HTML viewer (default: elab,opt,gate; --stage is shown first)")
     p.add_argument("--frontend", choices=FRONTENDS, default="auto",
@@ -123,6 +126,7 @@ def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, w
               stages: list[str]) -> Path:
     stage_netlists = {}
     stem = None
+    renamed: dict[str, str] = {}
     for st in stages:
         json_path = work / f"netlist_{st}.json"
         log.info(f"Running synthesis ({st})...")
@@ -138,14 +142,20 @@ def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, w
                 log.warn(f"Stage '{st}' skipped: {e}")
                 continue
             stem = re.sub(r"[^\w.-]+", "_", insts[-1])
+        orig_root = root
         netlist, root = reroot(netlist, root)
+        renamed[orig_root] = root
         stage_netlists[st] = netlist
         if args.keep_json:
             json_path.write_text(json.dumps(netlist), encoding="utf-8")
 
     out = _output_path(args, inputs, ".html", stem)
+    fsms = _extract_fsms(args, synth, work)
+    for old, new in renamed.items():  # --select renames a parameterized root module
+        if old in fsms and old != new:
+            fsms[new] = fsms.pop(old)
     build_viewer(stage_netlists, out, work, yosys=synth.yosys, skin=args.skin,
-                 default_stage=args.stage, default_flat=args.flatten)
+                 default_stage=args.stage, default_flat=args.flatten, fsms=fsms)
     if args.keep_json:
         for st in stage_netlists:
             shutil.copyfile(work / f"netlist_{st}.json", out.with_name(f"{out.stem}.{st}.json"))
@@ -170,6 +180,8 @@ def run(argv: list[str] | None = None) -> int:
         raise VeriViewError("--flatten and --depth cannot be combined (--flatten expands every level).")
     if args.depth is not None and args.depth < 0:
         raise VeriViewError("--depth must be >= 0.")
+    if args.fsm and (args.html or args.split or args.timing):
+        raise VeriViewError("--fsm prints a report; it cannot be combined with --html, --split or --timing.")
     if args.timing and (args.html or args.split or args.cone or args.depth is not None):
         raise VeriViewError("--timing prints a report; it cannot be combined with --html, --split, --cone or --depth.")
     if args.html and (args.depth is not None or args.cone):
@@ -219,6 +231,36 @@ def _run_timing(args: argparse.Namespace, synth: Synthesizer, work: Path) -> int
     return 0
 
 
+def _extract_fsms(args: argparse.Namespace, synth: Synthesizer, work: Path, strict: bool = False) -> dict:
+    from .fsm import SourceReader, extract_fsms, force_commands, recoding_rejects
+    json_path = work / "netlist_fsm.json"
+    log.info("Extracting state machines...")
+    try:
+        synth.synthesize(args.top, json_path, stage="fsm")
+        # second pass for FSMs that fsm_detect skipped only because recoding would not pay off
+        log_path = json_path.with_suffix(".detect.log")
+        rejects = recoding_rejects(log_path.read_text(encoding="utf-8", errors="replace")) if log_path.is_file() else []
+        if rejects:
+            synth.synthesize(args.top, json_path, stage="fsm", subst={"{force}": force_commands(rejects)})
+        pre = json.loads(json_path.with_suffix(".pre.json").read_text(encoding="utf-8"))
+        return extract_fsms(json.loads(json_path.read_text(encoding="utf-8")), SourceReader([Path.cwd(), work]), pre)
+    except (VeriViewError, OSError, KeyError, ValueError) as e:
+        if strict:
+            raise
+        log.warn(f"State machine extraction failed: {str(e).splitlines()[0]}")
+        return {}
+
+
+def _run_fsm(args: argparse.Namespace, synth: Synthesizer, work: Path) -> int:
+    from .fsm import format_fsms, to_dot
+    fsms = _extract_fsms(args, synth, work, strict=True)
+    if args.output and args.output.endswith(".dot"):
+        Path(args.output).write_text(to_dot(fsms), encoding="utf-8")
+        log.info(f"Graphviz diagram saved: {args.output}")
+    print(format_fsms(fsms))
+    return 0
+
+
 def _build(args: argparse.Namespace, inputs: list[str], html_stages: list[str]) -> BuildResult:
     """One complete run: returns (exit status, output path, sources)."""
     sources = collect_sources(inputs, args.incdirs, args.defines)
@@ -253,6 +295,9 @@ def _build(args: argparse.Namespace, inputs: list[str], html_stages: list[str]) 
 
         if args.timing:
             return _run_timing(args, synth, work), None, sources
+
+        if args.fsm:
+            return _run_fsm(args, synth, work), None, sources
 
         json_path = work / "netlist.json"
         log.info("Running synthesis...")

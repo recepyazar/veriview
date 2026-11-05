@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.8.0
+
+- **State machine diagrams**: FSMs are extracted with Yosys (`fsm_detect` / `fsm_extract`) and drawn in the viewer (**◇ FSM**): state names from `enum`s or `localparam`s, encodings, Moore outputs, reset state, transitions labelled with the original source expressions (merged and simplified with Quine–McCluskey). Draggable layout; in simulation mode the current state and the last transition are highlighted; links to the code panel; SVG download.
+- `--fsm` prints the state machines (and writes Graphviz with `-o file.dot`).
+- Several FSMs per module (selector) and links to FSMs in sub-modules; small FSMs that Yosys' recoding heuristic skips are detected too.
+- New examples `fsm/traffic.sv` (Moore, enum), `fsm/seq_fsm.v` (localparam, synchronous reset) and `fsm/multi_fsm.sv` / `fsm.f` (several FSMs).
+
 ## 5.7.0
 
 - **Gate-level timing analysis**: static timing with per-gate delays (generic illustrative library), setup and hold checks, clock period / input delay / output delay / clock uncertainty, critical path, fmax, WNS/TNS and area.

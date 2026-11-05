@@ -89,6 +89,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fsm", action="store_true",
                    help="print the state machines found in the design (states, encodings, transitions); "
                         "with -o file.dot write a Graphviz diagram")
+    p.add_argument("--lang", choices=("auto", "en", "tr"), default="auto",
+                   help="viewer language (default: the browser's language; Türkçe: tr)")
     p.add_argument("--html-stages", default=",".join(STAGES), metavar="LIST",
                    help="stages embedded in the HTML viewer (default: elab,opt,gate; --stage is shown first)")
     p.add_argument("--frontend", choices=FRONTENDS, default="auto",
@@ -197,7 +199,7 @@ def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, w
         if old in fsms and old != new:
             fsms[new] = fsms.pop(old)
     build_viewer(stage_netlists, out, work, yosys=synth.yosys, skin=args.skin,
-                 default_stage=args.stage, default_flat=args.flatten, fsms=fsms)
+                 default_stage=args.stage, default_flat=args.flatten, fsms=fsms, lang=args.lang)
     if args.keep_json:
         for st in stage_netlists:
             shutil.copyfile(work / f"netlist_{st}.json", out.with_name(f"{out.stem}.{st}.json"))

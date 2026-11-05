@@ -8,6 +8,8 @@
 
 It wraps **Yosys** and **netlistsvg** (plus, optionally, **sv2v** or **yosys-slang** for full SystemVerilog support): it reads your sources or `.f` file lists, synthesizes a netlist and renders it as an SVG.
 
+> 🇹🇷 **Türkçe:** Görüntüleyici Türkçe arayüzle gelir (tarayıcı dili Türkçe ise otomatik; sağ üstteki **TR/EN** düğmesiyle değiştirilebilir, `--lang tr` ile varsayılan yapılabilir). Hızlı başlangıç: `pipx install veriview`, sonra `veriview tasarim.sv` — görüntüleyici tarayıcıda açılır; tüm özellikler (görünümler, zamanlama, FSM diyagramı, simülasyon, kaynak kod) birer düğme.
+
 ## Features
 
 - **Verilog & SystemVerilog** (`.v`, `.sv`) – auto-detected per file.
@@ -110,6 +112,7 @@ where `<input>` is one or more `.v`/`.sv` files, `.f` file lists or a folder. Th
 | `--fsm` | Print the state machines found in the design (states, encodings, transitions); with `-o file.dot` also write a Graphviz diagram. |
 | `--timing <period>` | Print a gate-level static timing report (setup/hold, critical path, fmax, area), e.g. `--timing 2ns` or `--timing 250MHz`. |
 | `--input-delay`, `--output-delay`, `--uncertainty` | Timing constraints for `--timing` (defaults `100ps`, `0ps`, `0ps`). |
+| `--lang <auto\|en\|tr>` | Viewer language (default: the browser's language). Türkçe arayüz için `tr`. |
 | `--html-stages <list>` | Views embedded in the HTML viewer (default `elab,opt,gate`; `--stage` is shown first). |
 | `--frontend <name>` | `auto` (default), `yosys`, `sv2v` or `slang`. |
 | `--skin <file.svg>` | Custom [netlistsvg skin](https://github.com/nturley/netlistsvg#skins). |

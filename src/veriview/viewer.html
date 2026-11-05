@@ -236,6 +236,7 @@
     <button class="btn" id="btn-code" aria-pressed="false" title="Show the source code: click a cell to see its line, click a line to see its cells">&lt;/&gt; Code</button>
     <button class="btn" id="btn-fit" title="Fit to window (F)">Fit</button>
     <button class="btn" id="btn-svg" title="Download this schematic as SVG">SVG</button>
+    <button class="btn" id="btn-lang" title="Language / Dil">TR</button>
     <button class="btn" id="btn-theme" title="Toggle light/dark theme">◐</button>
   </div>
 </header>
@@ -340,10 +341,155 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   const canvas = $("canvas"), crumbs = $("crumbs"), treeEl = $("tree"), statusEl = $("status");
   $("version").textContent = "v" + DATA.version;
 
+  // ---- language (English / Türkçe) ----------------------------------------------------
+  // English strings are the keys; {name} placeholders are filled from `vars`.
+  const TR = {
+    // static labels and tooltips
+    "</> Code": "</> Kod", "Add signal": "Sinyal ekle", "Clear": "Temizle", "Clear highlight (Esc)": "Vurgulamayı temizle (Esc)",
+    "Clear inputs": "Girişleri temizle", "Click a net to show its": "Tele tıklayınca göster:",
+    "Click an input cell to change it (Shift: this and all later cycles) · click a cycle number to see it in the schematic":
+      "Değiştirmek için bir giriş hücresine tıkla (Shift: bu ve sonraki tüm çevrimler) · şemada görmek için bir çevrim numarasına tıkla",
+    "Clock": "Saat", "Clock period": "Saat periyodu", "Clock uncertainty": "Saat belirsizliği", "Cycles": "Çevrim",
+    "Download as VCD (GTKWave)": "VCD olarak indir (GTKWave)", "Download this schematic as SVG": "Bu şemayı SVG olarak indir",
+    "Drag to resize": "Boyutlandırmak için sürükle", "Draw input waveforms by hand and see the outputs": "Giriş dalga biçimlerini elle çiz, çıkışları gör",
+    "Filter hierarchy": "Hiyerarşiyi filtrele", "Filter instances / modules…": "Instance / modül filtrele…", "Fit": "Sığdır",
+    "Fit to window (F)": "Pencereye sığdır (F)", "Flatten": "Düzleştir",
+    "Flatten this module (expand all sub-modules)": "Bu modülü düzleştir (tüm alt modülleri aç)",
+    "Forget dragged positions": "Sürüklenen konumları unut",
+    "Generic gate library (illustrative values, not sign-off)": "Genel kapı kütüphanesi (temsili değerler, sign-off değil)",
+    "Go up one level (Backspace)": "Bir üst seviyeye çık (Backspace)", "Hierarchy path": "Hiyerarşi yolu",
+    "Highlight signal": "Sinyal vurgula", "Highlight signal…": "Sinyal vurgula…", "Input delay": "Giriş gecikmesi",
+    "Input used as clock": "Saat olarak kullanılan giriş", "One clock cycle (rising + falling edge)": "Bir saat çevrimi (yükselen + düşen kenar)",
+    "Output delay": "Çıkış gecikmesi", "Reset": "Sıfırla", "Reset all input waveforms": "Tüm giriş dalga biçimlerini sıfırla",
+    "Reset all registers to 0": "Tüm register'ları 0'a sıfırla", "Reset layout": "Yerleşimi sıfırla", "Run": "Çalıştır",
+    "Run this many clock cycles": "Bu kadar saat çevrimi çalıştır", "Schematic": "Şema",
+    "Show the source code: click a cell to see its line, click a line to see its cells":
+      "Kaynak kodu göster: bir hücreye tıkla satırını gör, bir satıra tıkla hücrelerini gör",
+    "Signals": "Sinyaller", "Simulation mode: set inputs, clock the design and watch values propagate":
+      "Simülasyon modu: girişleri ayarla, tasarıma saat ver ve değerlerin yayılmasını izle",
+    "Source code": "Kaynak kod", "Source file": "Kaynak dosya", "Stage": "Aşama", "State machine": "Durum makinesi",
+    "State machine diagram": "Durum makinesi diyagramı", "State machine diagram of this module": "Bu modülün durum makinesi diyagramı",
+    "Static timing analysis of the gate-level netlist: gate delays, setup/hold checks, critical path":
+      "Kapı seviyesinde statik zamanlama analizi: kapı gecikmeleri, setup/hold kontrolleri, kritik yol",
+    "Step ⏵": "Adım ⏵", "Timing": "Zamanlama", "Toggle light/dark theme": "Açık / koyu tema", "View": "Görünüm",
+    "Waveform": "Dalga biçimi", "arrival time of primary inputs after the clock edge": "girişlerin saat kenarından sonraki varış zamanı",
+    "e.g. 2ns, 500ps, 250MHz": "ör. 2ns, 500ps, 250MHz", "fan-in + fan-out": "fan-in + fan-out", "fan-in cone": "fan-in konisi",
+    "fan-out cone": "fan-out konisi", "skew/jitter: tightens setup and hold checks": "skew/jitter: setup ve hold kontrollerini sıkılaştırır",
+    "time the outputs must be stable before the next edge": "çıkışların bir sonraki kenardan önce kararlı olması gereken süre",
+    "↑ Up": "↑ Yukarı", "⏱ Timing": "⏱ Zamanlama", "▶ Simulate": "▶ Simüle et", "〰 Waveform": "〰 Dalga biçimi",
+    "Language": "Dil",
+    // views
+    "RTL": "RTL", "Optimized": "Optimize", "Gates": "Kapılar",
+    "Elaborated RTL exactly as written (nothing optimized away)": "Yazıldığı gibi elaborate edilmiş RTL (hiçbir şey silinmez)",
+    "Optimized RTL (unused logic removed, duplicates merged)": "Optimize edilmiş RTL (kullanılmayan mantık silinir, tekrarlar birleşir)",
+    "Synthesized to simple gates and flip-flops": "Basit kapılara ve flip-flop'lara sentezlenmiş",
+    // hints
+    "Wheel: zoom · Drag: pan · Click a sub-module to open it · Click a net for its cone (Shift: fan-out)":
+      "Tekerlek: yakınlaştır · Sürükle: kaydır · Alt modüle tıkla: aç · Tele tıkla: konisi (Shift: fan-out)",
+    "Wheel: zoom · Drag: pan · Click an input port to toggle it · Hover a wire for its value":
+      "Tekerlek: yakınlaştır · Sürükle: kaydır · Giriş port'una tıkla: değiştir · Telin üstüne gel: değeri",
+    "Wheel: zoom · Drag: pan · Numbers under gates are delays [ps] · Hover for arrival times · Click a net for its longest path":
+      "Tekerlek: yakınlaştır · Sürükle: kaydır · Kapıların altındaki sayılar gecikme [ps] · Üstüne gel: varış zamanları · Tele tıkla: en uzun yol",
+    "Drag states to rearrange · hover for details · with </> Code open, click a state or a transition":
+      "Durumları sürükleyerek yerleştir · ayrıntı için üstüne gel · </> Kod açıkken bir duruma ya da geçişe tıkla",
+    // status line
+    "“{path}” does not exist in the {view} view (optimized away)": "“{path}” {view} görünümünde yok (optimize edilip silinmiş)",
+    "Fan-in cone": "Fan-in konisi", "Fan-out cone": "Fan-out konisi", "Fan-in + fan-out": "Fan-in + fan-out",
+    "{kind} of {label}": "{label}: {kind}",
+    "{cells} cell(s), {ports} port(s) · stops at registers · Esc to clear": "{cells} hücre, {ports} port · register'larda durur · temizlemek için Esc",
+    "flattened": "düzleştirilmiş", "{n} cell(s)": "{n} hücre", "source: {src}": "kaynak: {src}",
+    "Simulation": "Simülasyon", "cycle {n}": "çevrim {n}",
+    "inputs are driven by the parent module": "girişler üst modülden geliyor",
+    "click an input port or edit values in the Signals panel": "bir giriş port'una tıkla ya da Sinyaller panelinde değer gir",
+    "unsupported cells (outputs held at 0): {list}": "desteklenmeyen hücreler (çıkışları 0'da tutulur): {list}",
+    "a combinational loop did not settle": "bir kombinasyonel döngü kararlı hale gelmedi",
+    "{n} register(s) held in reset": "{n} register reset'te tutuluyor", " by {port} = {level}": " ({port} = {level} yüzünden)",
+    " (by an internal signal)": " (iç bir sinyal yüzünden)", "choose the clock input first (Clock ▾)": "önce saat girişini seç (Saat ▾)",
+    "<b>FSM</b> · drag states to rearrange · ▶ Simulate shows the current state · with &lt;/&gt; Code open, click a state or transition":
+      "<b>FSM</b> · durumları sürükleyerek yerleştir · ▶ Simüle et o anki durumu gösterir · &lt;/&gt; Kod açıkken bir duruma ya da geçişe tıkla",
+    "<b>Timing</b> · click a net or gate for its longest path, or an endpoint in the table":
+      "<b>Zamanlama</b> · en uzun yol için bir tele ya da kapıya, veya tablodaki bir endpoint'e tıkla",
+    // controls
+    "This module has no sub-modules": "Bu modülün alt modülü yok", "Flatten is not available in simulation mode": "Simülasyon modunda düzleştirme yok",
+    "Timing analysis always uses the flattened netlist": "Zamanlama analizi her zaman düzleştirilmiş netlist'i kullanır",
+    "State machine diagram of this module ({n} FSM)": "Bu modülün durum makinesi diyagramı ({n} FSM)",
+    "State machines in sub-modules": "Alt modüllerde durum makineleri", "No state machine found in this module or below": "Bu modülde ya da altında durum makinesi yok",
+    "Timing needs the gate view (generate with --html-stages including gate)": "Zamanlama için kapı görünümü gerekli (--html-stages içine gate ekleyin)",
+    // values / prompts
+    "Invalid value": "Geçersiz değer", "Value, e.g. 5, 0x1F, 0b101, 8'hA5": "Değer, ör. 5, 0x1F, 0b101, 8'hA5",
+    "Value for {p} ({n} bits), e.g. 5, 0x1F, 0b101": "{p} için değer ({n} bit), ör. 5, 0x1F, 0b101",
+    "{name} @ cycle {t} = {v}\nclick: change this cycle · shift-click: this and all later cycles":
+      "{name} @ çevrim {t} = {v}\ntıkla: bu çevrimi değiştir · shift+tık: bu ve sonraki tüm çevrimler",
+    "{name} in cycle {t} ({n} bits), e.g. 5, 0x1F, 0b101": "{name}, çevrim {t} ({n} bit), ör. 5, 0x1F, 0b101",
+    "{name} in cycle {t} and later ({n} bits), e.g. 5, 0x1F, 0b101": "{name}, çevrim {t} ve sonrası ({n} bit), ör. 5, 0x1F, 0b101",
+    "Remove from waveform": "Dalga biçiminden çıkar", "+ Add signal…": "+ Sinyal ekle…",
+    // timing
+    "Invalid value for {k}: \"{v}\" (e.g. 2ns, 500ps, 250MHz)": "{k} için geçersiz değer: \"{v}\" (ör. 2ns, 500ps, 250MHz)",
+    "delay": "gecikme", "output arrival {a} (min {b})": "çıkış varışı {a} (min {b})", "slack {s}": "slack {s}",
+    "{net}: arrival {a} (min {b})": "{net}: varış {a} (min {b})",
+    "Shortest (hold) path": "en kısa (hold) yol", "Longest (setup) path": "en uzun (setup) yol", "{kind} to {ep}": "{ep} için {kind}",
+    "{n} gate(s), arrival {a}": "{n} kapı, varış {a}", ", slack": ", slack", " · Esc to clear": " · temizlemek için Esc",
+    "Timing analysis runs on the gate-level netlist. ": "Zamanlama analizi kapı seviyesindeki netlist üzerinde çalışır. ",
+    "Switch to the Gates view": "Kapılar görünümüne geç", "Area": "Alan", "({n} cells)": "({n} hücre)", "Critical path": "Kritik yol",
+    "{n} violation(s)": "{n} ihlal", "Hold: no registers": "Hold: register yok", "Hold worst": "En kötü hold",
+    "no timing for: {list}": "zamanlama modeli yok: {list}", "{n} cells in combinational loops (not timed)": "kombinasyonel döngüde {n} hücre (zamanlanmadı)",
+    "Endpoint": "Endpoint", "Type": "Tür", "Arrival": "Varış", "Required": "Gereken", "Setup slack": "Setup slack", "Hold slack": "Hold slack",
+    "register {pin}": "register {pin}", "output": "çıkış", "setup path": "setup yolu", "hold path": "hold yolu",
+    "Show the longest path to this endpoint": "Bu endpoint'e giden en uzun yolu göster",
+    "Show the shortest path to this endpoint": "Bu endpoint'e giden en kısa yolu göster",
+    "No timing endpoints (no registers or outputs).": "Zamanlanacak endpoint yok (register ya da çıkış yok).",
+    "… {n} more endpoints": "… {n} endpoint daha",
+    // code panel
+    "{name}: no source location": "{name}: kaynak konumu yok", "net {n}: no source location": "net {n}: kaynak konumu yok",
+    "module {m}": "modül {m}", "net {n}": "net {n}",
+    "nothing from this line in the current view": "bu satırdan şu anki görünümde hiçbir şey yok",
+    " (it may have been optimized away — try the RTL view)": " (optimize edilip silinmiş olabilir — RTL görünümünü dene)",
+    "{c} cell(s), {n} net(s) · Esc to clear": "{c} hücre, {n} net · temizlemek için Esc",
+    "state {s}: {n} line(s)": "durum {s}: {n} satır",
+    // FSM
+    "Also in sub-modules: ": "Alt modüllerde de: ", "State machines in sub-modules: ": "Alt modüllerdeki durum makineleri: ",
+    "No state machine in this module.": "Bu modülde durum makinesi yok.",
+    "No state machine in this module — open one of the sub-modules listed above.": "Bu modülde durum makinesi yok — yukarıdaki alt modüllerden birini aç.",
+    "{n} states, {m} transitions": "{n} durum, {m} geçiş", " · current state ": " · şu anki durum ",
+    "always": "her zaman", "when: {c}": "koşul: {c}", "outputs: {o}": "çıkışlar: {o}", "outputs high: {o}": "1 olan çıkışlar: {o}",
+    " — reset state": " — reset durumu",
+  };
+  let LANG = "en";
+  try {
+    const stored = localStorage.getItem("veriview-lang");
+    const pref = stored || (DATA.lang && DATA.lang !== "auto" ? DATA.lang : (navigator.language || "").toLowerCase());
+    LANG = String(pref).startsWith("tr") ? "tr" : "en";
+  } catch (e) {}
+  const _t = (s, vars) => {
+    let out = LANG === "tr" && TR[s] !== undefined ? TR[s] : s;
+    if (vars) for (const [k, v] of Object.entries(vars)) out = out.split(`{${k}}`).join(String(v));
+    return out;
+  };
+  // translate the static page (labels, tooltips, placeholders); dynamic texts use t()
+  function translateStatic() {
+    document.documentElement.lang = LANG;
+    if (LANG === "en") return;
+    const skip = new Set(["canvas", "code-body", "fsmview", "sim-table", "t-body", "wave-body", "tree", "crumbs", "status"]);
+    const walk = (el) => {
+      if (el.id && skip.has(el.id)) return;
+      for (const a of ["title", "placeholder", "aria-label"]) {
+        const v = el.getAttribute && el.getAttribute(a);
+        if (v && TR[v] !== undefined) el.setAttribute(a, TR[v]);
+      }
+      for (const n of el.childNodes) {
+        if (n.nodeType === 3) {
+          const s = n.nodeValue.trim();
+          if (s && TR[s] !== undefined) n.nodeValue = n.nodeValue.replace(s, TR[s]);
+        } else if (n.nodeType === 1) walk(n);
+      }
+    };
+    walk(document.body);
+  }
+
   const STAGE_INFO = {
-    elab: ["RTL", "Elaborated RTL exactly as written (nothing optimized away)"],
-    opt: ["Optimized", "Optimized RTL (unused logic removed, duplicates merged)"],
-    gate: ["Gates", "Synthesized to simple gates and flip-flops"],
+    elab: [_t("RTL"), _t("Elaborated RTL exactly as written (nothing optimized away)")],
+    opt: [_t("Optimized"), _t("Optimized RTL (unused logic removed, duplicates merged)")],
+    gate: [_t("Gates"), _t("Synthesized to simple gates and flip-flops")],
   };
 
   // ---- state & URL hash: #/inst/inst?stage=opt&flat=1 ---------------------
@@ -379,7 +525,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const path = p ? p.split("/").map(decodeURIComponent) : [];
     const valid = validPrefix(path);
     state.notice = valid.length < path.length
-      ? `“${path.slice(valid.length).join("/")}” does not exist in the ${STAGE_INFO[state.stage][0]} view (optimized away)`
+      ? _t("“{path}” does not exist in the {view} view (optimized away)", { path: path.slice(valid.length).join("/"), view: STAGE_INFO[state.stage][0] })
       : "";
     state.path = valid;
   };
@@ -508,8 +654,9 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     for (const c of startCells) res.cells.add(c);
     // nets fully in the cone are highlighted; buses that only partly belong to it are dashed
     markSets(res);
-    const kind = { in: "Fan-in cone", out: "Fan-out cone", both: "Fan-in + fan-out" }[mode];
-    state.cone = `<b>${kind} of ${escapeHtml(label)}</b>: ${res.cells.size} cell(s), ${res.ports.size} port(s) · stops at registers · Esc to clear`;
+    const kind = _t({ in: "Fan-in cone", out: "Fan-out cone", both: "Fan-in + fan-out" }[mode]);
+    state.cone = `<b>${_t("{kind} of {label}", { kind, label: escapeHtml(label) })}</b>: ` +
+      _t("{cells} cell(s), {ports} port(s) · stops at registers · Esc to clear", { cells: res.cells.size, ports: res.ports.size });
     $("btn-clear").disabled = false;
     renderStatus();
   };
@@ -565,7 +712,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   };
   const clockCycles = (n) => {
     const clk = $("sim-clk").value;
-    if (!clk) { simNote = "choose the clock input first (Clock ▾)"; return; }
+    if (!clk) { simNote = _t("choose the clock input first (Clock ▾)"); return; }
     simNote = "";
     sim.clock(clk, n);
     saveInputs();
@@ -603,7 +750,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       g.classList.toggle("vv-input", atTop && dir !== "output");
     }
     renderSimPanel(vals);
-    $("sim-cycle").textContent = `cycle ${sim.cycle}`;
+    $("sim-cycle").textContent = _t("cycle {n}", { n: sim.cycle });
   }
   function renderSimPanel(vals) {
     const tbl = $("sim-table");
@@ -631,10 +778,10 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       } else if (editable) {
         const inp = document.createElement("input");
         inp.type = "text"; inp.value = fmtVal(v).split(" ")[0]; inp.setAttribute("aria-label", name);
-        inp.title = "Value, e.g. 5, 0x1F, 0b101, 8'hA5";
+        inp.title = _t("Value, e.g. 5, 0x1F, 0b101, 8'hA5");
         inp.onchange = () => {
           const nv = parseVal(inp.value, bits.length);
-          if (nv) { setInput(name, nv); refreshSim(); } else { inp.setCustomValidity("Invalid value"); inp.reportValidity(); }
+          if (nv) { setInput(name, nv); refreshSim(); } else { inp.setCustomValidity(_t("Invalid value")); inp.reportValidity(); }
         };
         cell.append(inp);
       } else cell.textContent = fmtVal(v);
@@ -652,7 +799,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const p = g.id.slice(5), cur = sim.inputs.get(p) || [0];
     if (cur.length === 1) setInput(p, [1 - cur[0]]);
     else {
-      const t = prompt(`Value for ${p} (${cur.length} bits), e.g. 5, 0x1F, 0b101`, fmtVal(cur).split(" ")[0]);
+      const t = prompt(_t("Value for {p} ({n} bits), e.g. 5, 0x1F, 0b101", { p, n: cur.length }), fmtVal(cur).split(" ")[0]);
       const nv = t === null ? null : parseVal(t, cur.length);
       if (!nv) return;
       setInput(p, nv);
@@ -754,7 +901,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       if (r.kind === "probe") {
         const x = e("text", { x: LW - 16, y: mid + 4, class: "w-del" }, "×");
         x.addEventListener("click", () => { wave.probes = wave.probes.filter((p) => p !== r.name); runWaveNow(); drawWave(); fillWaveAdd(); });
-        x.append(e("title", {}, "Remove from waveform"));
+        x.append(e("title", {}, _t("Remove from waveform")));
         svgw.append(x);
       }
       if (r.kind === "clk") {
@@ -792,13 +939,13 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       if (r.kind === "in") {
         for (let t = 0; t < wave.n; t++) {
           const hit = e("rect", { x: LW + t * CW, y, width: CW, height: RH, class: "w-hit" });
-          hit.append(e("title", {}, `${r.name} @ cycle ${t} = ${fmtVal(vals[t])}\nclick: change this cycle · shift-click: this and all later cycles`));
+          hit.append(e("title", {}, _t("{name} @ cycle {t} = {v}\nclick: change this cycle · shift-click: this and all later cycles", { name: r.name, t, v: fmtVal(vals[t]) })));
           hit.addEventListener("click", (ev) => {
             const cur = vals[t];
             let nv;
             if (cur.length === 1) nv = [1 - cur[0]];
             else {
-              const s = prompt(`${r.name} in cycle ${t}${ev.shiftKey ? " and later" : ""} (${cur.length} bits), e.g. 5, 0x1F, 0b101`, fmtVal(cur).split(" ")[0]);
+              const s = prompt(_t(ev.shiftKey ? "{name} in cycle {t} and later ({n} bits), e.g. 5, 0x1F, 0b101" : "{name} in cycle {t} ({n} bits), e.g. 5, 0x1F, 0b101", { name: r.name, t, n: cur.length }), fmtVal(cur).split(" ")[0]);
               nv = s === null ? null : parseVal(s, cur.length);
               if (!nv) return;
             }
@@ -814,7 +961,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   function fillWaveAdd() {
     const sel = $("wave-add"), names = hierNet(view().top).names;
     sel.textContent = "";
-    const first = document.createElement("option"); first.value = ""; first.textContent = "+ Add signal…"; sel.append(first);
+    const first = document.createElement("option"); first.value = ""; first.textContent = _t("+ Add signal…"); sel.append(first);
     for (const n of Object.keys(names).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))) {
       if (wave.probes.includes(n) || (topPorts()[n] && topPorts()[n][0] !== "output")) continue;
       const o = document.createElement("option"); o.value = o.textContent = n; sel.append(o);
@@ -866,7 +1013,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const vals = {};
     for (const k of Object.keys(topt)) {
       const v = VVTiming.parseTime(topt[k], k === "period" ? "ns" : "ps");
-      if (v === null || (k === "period" && v <= 0)) return { error: `Invalid value for ${k}: "${topt[k]}" (e.g. 2ns, 500ps, 250MHz)` };
+      if (v === null || (k === "period" && v <= 0)) return { error: _t("Invalid value for {k}: \"{v}\" (e.g. 2ns, 500ps, 250MHz)", { k, v: topt[k] }) };
       vals[k] = v;
     }
     return VVTiming.analyzeTiming(net, vals);
@@ -894,7 +1041,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       const t = document.createElementNS(SVGNS, "title");
       t.setAttribute("class", "vv-t");
       t.textContent = `${n}\n${net.cells[n][0]}: ${isFF ? "clk→Q" : "delay"} ${fmtT(d)}` +
-        (tres.arrMax.has(out) ? `\noutput arrival ${fmtT(tres.arrMax.get(out))} (min ${fmtT(tres.arrMin.get(out))})` : "") +
+        (tres.arrMax.has(out) ? "\n" + _t("output arrival {a} (min {b})", { a: fmtT(tres.arrMax.get(out)), b: fmtT(tres.arrMin.get(out)) }) : "") +
         (s !== undefined ? `\nslack ${fmtT(s)}` : "");
       g.prepend(t);
     }
@@ -904,7 +1051,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       const mx = Math.max(...bits.map((b) => tres.arrMax.get(b) ?? 0)), mn = Math.min(...bits.map((b) => tres.arrMin.get(b) ?? 0));
       let t = el.querySelector("title");
       if (!t) { t = document.createElementNS(SVGNS, "title"); el.append(t); }
-      t.textContent = `${nameOfBits(bits)}: arrival ${fmtT(mx)} (min ${fmtT(mn)})`;
+      t.textContent = _t("{net}: arrival {a} (min {b})", { net: nameOfBits(bits), a: fmtT(mx), b: fmtT(mn) });
     }
     renderTimingPanel();
     if (tsel) {
@@ -969,9 +1116,9 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const gates = steps.filter((s) => s.kind === "cell").length;
     const slack = mode === "hold" ? ep.holdSlack : ep.slack;
     const arr = mode === "hold" ? ep.minArrival : ep.arrival;
-    state.cone = `<b>${mode === "hold" ? "Shortest (hold) path" : "Longest (setup) path"} to ${escapeHtml(ep.name)}</b>: ` +
-      `${gates} gate${gates === 1 ? "" : "s"}, arrival ${fmtT(arr)}` +
-      (slack === null || slack === undefined ? "" : `, slack <span class="${slack < 0 ? "t-bad" : "t-ok"}">${fmtT(slack)}</span>`) + " · Esc to clear";
+    state.cone = `<b>${_t("{kind} to {ep}", { kind: _t(mode === "hold" ? "Shortest (hold) path" : "Longest (setup) path"), ep: escapeHtml(ep.name) })}</b>: ` +
+      _t("{n} gate(s), arrival {a}", { n: gates, a: fmtT(arr) }) +
+      (slack === null || slack === undefined ? "" : `, slack <span class="${slack < 0 ? "t-bad" : "t-ok"}">${fmtT(slack)}</span>`) + _t(" · Esc to clear");
     $("btn-clear").disabled = false;
     renderStatus();
     for (const tr of $("t-table").querySelectorAll("tr[data-ep]")) tr.classList.toggle("sel", tr.dataset.ep === ep.name);
@@ -986,8 +1133,8 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       sum.textContent = "";
       body.innerHTML = "";
       const p = document.createElement("p"); p.className = "t-msg";
-      p.textContent = "Timing analysis runs on the gate-level netlist. ";
-      const b = document.createElement("button"); b.className = "btn"; b.textContent = "Switch to the Gates view";
+      p.textContent = _t("Timing analysis runs on the gate-level netlist. ");
+      const b = document.createElement("button"); b.className = "btn"; b.textContent = _t("Switch to the Gates view");
       b.onclick = () => go({ stage: "gate" });
       p.append(b); body.append(p);
       return;
@@ -996,42 +1143,42 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const r = tres, cls = (v) => (v < 0 ? "t-bad" : "t-ok");
     const ncells = Object.values(r.counts).reduce((a, b) => a + b, 0);
     const parts = [
-      `Area <b>${r.area.toFixed(1)} µm²</b> (${ncells} cells)`,
-      `Critical path <b>${fmtT(r.minPeriod)}</b>` + (r.fmaxMHz ? ` → fmax <b>${r.fmaxMHz >= 1000 ? (r.fmaxMHz / 1000).toFixed(2) + " GHz" : r.fmaxMHz.toFixed(0) + " MHz"}</b>` : ""),
-      `Setup WNS <b class="${cls(r.wns)}">${fmtT(r.wns)}</b>, TNS ${fmtT(r.tns)}, <span class="${r.setupViolations ? "t-bad" : ""}">${r.setupViolations} violation${r.setupViolations === 1 ? "" : "s"}</span>`,
-      r.worstHold === null ? "Hold: no registers"
-        : `Hold worst <b class="${cls(r.worstHold)}">${fmtT(r.worstHold)}</b>, <span class="${r.holdViolations ? "t-bad" : ""}">${r.holdViolations} violation${r.holdViolations === 1 ? "" : "s"}</span>`,
+      `${_t("Area")} <b>${r.area.toFixed(1)} µm²</b> ${_t("({n} cells)", { n: ncells })}`,
+      `${_t("Critical path")} <b>${fmtT(r.minPeriod)}</b>` + (r.fmaxMHz ? ` → fmax <b>${r.fmaxMHz >= 1000 ? (r.fmaxMHz / 1000).toFixed(2) + " GHz" : r.fmaxMHz.toFixed(0) + " MHz"}</b>` : ""),
+      `Setup WNS <b class="${cls(r.wns)}">${fmtT(r.wns)}</b>, TNS ${fmtT(r.tns)}, <span class="${r.setupViolations ? "t-bad" : ""}">${_t("{n} violation(s)", { n: r.setupViolations })}</span>`,
+      r.worstHold === null ? _t("Hold: no registers")
+        : `${_t("Hold worst")} <b class="${cls(r.worstHold)}">${fmtT(r.worstHold)}</b>, <span class="${r.holdViolations ? "t-bad" : ""}">${_t("{n} violation(s)", { n: r.holdViolations })}</span>`,
     ];
-    if (r.unknown.length) parts.push(`<span class="t-bad">no timing for: ${escapeHtml(r.unknown.join(", "))}</span>`);
-    if (r.loopCells.length) parts.push(`<span class="t-bad">${r.loopCells.length} cells in combinational loops (not timed)</span>`);
+    if (r.unknown.length) parts.push(`<span class="t-bad">${_t("no timing for: {list}", { list: escapeHtml(r.unknown.join(", ")) })}</span>`);
+    if (r.loopCells.length) parts.push(`<span class="t-bad">${_t("{n} cells in combinational loops (not timed)", { n: r.loopCells.length })}</span>`);
     sum.innerHTML = parts.join(" · ");
     const rows = r.endpoints.slice(0, 300);
     const tbl = document.createElement("table");
     tbl.id = "t-table";
-    tbl.innerHTML = "<thead><tr><th>Endpoint</th><th>Type</th><th>Arrival</th><th>Required</th><th>Setup slack</th><th>Hold slack</th><th></th></tr></thead>";
+    tbl.innerHTML = "<thead><tr>" + ["Endpoint", "Type", "Arrival", "Required", "Setup slack", "Hold slack", ""].map((h) => `<th>${h && _t(h)}</th>`).join("") + "</tr></thead>";
     const tb = document.createElement("tbody");
     for (const ep of rows) {
       const tr = document.createElement("tr");
       tr.dataset.ep = ep.name;
       const td = (html, c) => { const e = document.createElement("td"); if (c) e.className = c; e.innerHTML = html; tr.append(e); return e; };
       td(escapeHtml(ep.name));
-      td(ep.kind === "ff" ? `register ${ep.pin}` : "output", "muted");
+      td(ep.kind === "ff" ? _t("register {pin}", { pin: ep.pin }) : _t("output"), "muted");
       td(fmtT(ep.arrival)); td(fmtT(ep.required));
       td(fmtT(ep.slack), cls(ep.slack));
       td(ep.holdSlack === null ? "–" : fmtT(ep.holdSlack), ep.holdSlack === null ? "muted" : cls(ep.holdSlack));
       const act = td("");
       const mk = (label, mode, title) => { const b = document.createElement("button"); b.className = "btn small"; b.textContent = label; b.title = title; b.onclick = (ev) => { ev.stopPropagation(); showPath(ep, mode, true); }; act.append(b); };
-      mk("setup path", "setup", "Show the longest path to this endpoint");
-      if (ep.holdSlack !== null) mk("hold path", "hold", "Show the shortest path to this endpoint");
+      mk(_t("setup path"), "setup", _t("Show the longest path to this endpoint"));
+      if (ep.holdSlack !== null) mk(_t("hold path"), "hold", _t("Show the shortest path to this endpoint"));
       tr.onclick = () => showPath(ep, "setup", true);
       tb.append(tr);
     }
     tbl.append(tb);
     body.textContent = "";
-    if (!rows.length) body.innerHTML = '<p class="t-msg">No timing endpoints (no registers or outputs).</p>';
+    if (!rows.length) body.innerHTML = `<p class="t-msg">${_t("No timing endpoints (no registers or outputs).")}</p>`;
     else body.append(tbl);
     if (r.endpoints.length > rows.length) {
-      const p = document.createElement("p"); p.className = "t-msg"; p.textContent = `… ${r.endpoints.length - rows.length} more endpoints`; body.append(p);
+      const p = document.createElement("p"); p.className = "t-msg"; p.textContent = _t("… {n} more endpoints", { n: r.endpoints.length - rows.length }); body.append(p);
     }
   }
   for (const [id, k] of [["t-period", "period"], ["t-in", "inputDelay"], ["t-out", "outputDelay"], ["t-unc", "uncertainty"]]) {
@@ -1117,19 +1264,19 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   function codeShowCell(name) {
     if (!state.code) return;
     const ok = markLines(parseSrc(net.src && net.src[name]));
-    $("code-msg").textContent = ok ? `${name}` : `${name}: no source location`;
+    $("code-msg").textContent = ok ? `${name}` : _t("{name}: no source location", { name });
   }
   function codeShowNet(bits) {
     if (!state.code) return;
     const n = nameOfBits(bits);
     const ok = markLines(parseSrc(net.nsrc && net.nsrc[n.replace(/\[\d+\]$/, "")]));
-    $("code-msg").textContent = ok ? `net ${n}` : `net ${n}: no source location`;
+    $("code-msg").textContent = _t(ok ? "net {n}" : "net {n}: no source location", { n });
   }
   function codeShowModule(mod) {
     if (!state.code) return;
     const rs = parseSrc(mod.src);
     for (const el of $("code-body").querySelectorAll(".hl")) el.classList.remove("hl");
-    if (rs.length) { markLines(rs.map((r) => ({ ...r, l2: r.l1 })), "def"); $("code-msg").textContent = `module ${mod.label}`; }
+    if (rs.length) { markLines(rs.map((r) => ({ ...r, l2: r.l1 })), "def"); $("code-msg").textContent = _t("module {m}", { m: mod.label }); }
     else if (!code.file && Object.keys(SOURCES).length) renderCode(Object.keys(SOURCES)[0]);
   }
   // code -> schematic
@@ -1157,15 +1304,15 @@ const DATA = /*__VERIVIEW_DATA__*/null;
         if (path) { code.pending = { file, line }; go({ path }); return; }
       }
       clearHighlight(false);
-      state.cone = `<b>${escapeHtml(file)}:${line}</b>: nothing from this line in the current view` +
-        (state.stage !== "elab" ? " (it may have been optimized away — try the RTL view)" : "");
+      state.cone = `<b>${escapeHtml(file)}:${line}</b>: ${_t("nothing from this line in the current view")}` +
+        (state.stage !== "elab" ? _t(" (it may have been optimized away — try the RTL view)") : "");
       $("btn-clear").disabled = false;
       renderStatus();
       return;
     }
     clearHighlight(false);
     markSets(res);
-    state.cone = `<b>${escapeHtml(file)}:${line}</b>: ${res.cells.size} cell${res.cells.size === 1 ? "" : "s"}, ${nets} net${nets === 1 ? "" : "s"} · Esc to clear`;
+    state.cone = `<b>${escapeHtml(file)}:${line}</b>: ` + _t("{c} cell(s), {n} net(s) · Esc to clear", { c: res.cells.size, n: nets });
     $("btn-clear").disabled = false;
     renderStatus();
   }
@@ -1219,7 +1366,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   function renderFsmBelow(el, below) {
     el.textContent = "";
     if (!below.length) return;
-    el.append(document.createTextNode(below.length && fsmsHere().length ? "Also in sub-modules: " : "State machines in sub-modules: "));
+    el.append(document.createTextNode(_t(below.length && fsmsHere().length ? "Also in sub-modules: " : "State machines in sub-modules: ")));
     below.forEach((b, i) => {
       if (i) el.append(document.createTextNode(" · "));
       const a = document.createElement("a");
@@ -1259,7 +1406,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const below = fsmsBelow();
     renderFsmBelow($("fsm-below"), below);
     if (!list.length) {
-      box.innerHTML = `<p class="t-msg">No state machine in this module${below.length ? " — open one of the sub-modules listed above." : "."}</p>`;
+      box.innerHTML = `<p class="t-msg">${_t(below.length ? "No state machine in this module — open one of the sub-modules listed above." : "No state machine in this module.")}</p>`;
       $("fsm-info").textContent = "";
       return;
     }
@@ -1312,7 +1459,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       }
       g.append(e("path", { d, fill: "none", stroke: col, "stroke-width": hl ? 3 : 1.6, "marker-end": mark }));
       const outs = Object.entries(t.outputs || {}).filter(([, v]) => v).map(([k]) => k);
-      const label = short(t.cond === "1" ? "always" : t.cond) + (outs.length ? ` / ${short(outs.join(", "), 20)}` : "");
+      const label = short(t.cond === "1" ? _t("always") : t.cond) + (outs.length ? ` / ${short(outs.join(", "), 20)}` : "");
       const w = label.length * 6.4 + 10;
       if (g._at) {  // slide the label along its arrow until it does not overlap another label or a state
         for (const k of [0.5, 0.38, 0.62, 0.28, 0.72, 0.2, 0.8]) {
@@ -1323,7 +1470,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       boxes.push({ x0: lx - w / 2, y0: ly - 10, x1: lx + w / 2, y1: ly + 10 });
       g.append(e("rect", { x: lx - w / 2, y: ly - 9, width: w, height: 17, rx: 4, fill: "#ffffff", stroke: hl ? col : "#d0d5dd", "fill-opacity": 0.92 }));
       g.append(e("text", { x: lx, y: ly + 4, "text-anchor": "middle", "font-size": 11, "font-family": "ui-monospace, Menlo, monospace", fill: hl ? col : "#344054" }, label));
-      g.append(e("title", {}, `${f.states[t.from].name} → ${f.states[t.to].name}\nwhen: ${t.cond}` + (outs.length ? `\noutputs: ${outs.join(", ")}` : "")));
+      g.append(e("title", {}, `${f.states[t.from].name} → ${f.states[t.to].name}\n` + _t("when: {c}", { c: t.cond }) + (outs.length ? "\n" + _t("outputs: {o}", { o: outs.join(", ") }) : "")));
       edgeLayer.append(g);
       grow(lx, ly, w / 2 + 4);
     });
@@ -1338,7 +1485,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       g.append(e("text", { y: y0 + 14, "text-anchor": "middle", "font-size": 10, "font-family": "ui-monospace, Menlo, monospace", fill: "#667085" }, st.code));
       // Moore outputs that are high in this state (inside the circle, so they never collide with loops)
       if (on.length) g.append(e("text", { y: y0 + 28, "text-anchor": "middle", "font-size": 9.5, "font-family": "ui-monospace, Menlo, monospace", fill: "#15a34a" }, short(on.join(", "), 14)));
-      g.append(e("title", {}, `${st.name} (${st.code})${si === f.reset ? " — reset state" : ""}` + (on.length ? `\noutputs high: ${on.join(", ")}` : "")));
+      g.append(e("title", {}, `${st.name} (${st.code})${si === f.reset ? _t(" — reset state") : ""}` + (on.length ? "\n" + _t("outputs high: {o}", { o: on.join(", ") }) : "")));
       nodeLayer.append(g);
       grow(p.x, p.y, r + 24);
     });
@@ -1373,8 +1520,8 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       const edge = ev.target.closest && ev.target.closest(".fsm-edge");
       if (edge) fsmClickEdge(f, f.transitions[+edge.dataset.t]);
     });
-    const name = state.sim && cur !== null ? ` · current state <b>${escapeHtml(f.states[cur].name)}</b>` : "";
-    $("fsm-info").innerHTML = `<b>${escapeHtml(f.name)}</b>: ${f.states.length} states, ${f.transitions.length} transitions` + name;
+    const name = state.sim && cur !== null ? `${_t(" · current state ")}<b>${escapeHtml(f.states[cur].name)}</b>` : "";
+    $("fsm-info").innerHTML = `<b>${escapeHtml(f.name)}</b>: ` + _t("{n} states, {m} transitions", { n: f.states.length, m: f.transitions.length }) + name;
   }
   // code links: a state -> the lines naming it; a transition -> its condition expressions
   function fsmClickState(f, si) {
@@ -1386,7 +1533,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       SOURCES[file].text.split("\n").forEach((line, i) => { if (re.test(line)) ranges.push({ file, l1: i + 1, l2: i + 1 }); });
     }
     markLines(ranges);
-    $("code-msg").textContent = `state ${nm}: ${ranges.length} line(s)`;
+    $("code-msg").textContent = _t("state {s}: {n} line(s)", { s: nm, n: ranges.length });
   }
   function fsmClickEdge(f, t) {
     if (!state.code) return;
@@ -1481,26 +1628,26 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const inst = state.path.length ? state.path[state.path.length - 1] : name;
     if (state.sim) {
       const warn = [];
-      if (sim.unsupported.size) warn.push(`unsupported cells (outputs held at 0): ${[...sim.unsupported].join(", ")}`);
-      if (sim.loopWarn) warn.push("a combinational loop did not settle");
+      if (sim.unsupported.size) warn.push(_t("unsupported cells (outputs held at 0): {list}", { list: [...sim.unsupported].join(", ") }));
+      if (sim.loopWarn) warn.push(_t("a combinational loop did not settle"));
       for (const h of sim.held) {
-        warn.push(`${h.count} register${h.count === 1 ? "" : "s"} held in reset` +
-          (h.port ? ` by ${h.port} = ${h.level}` : " (by an internal signal)"));
+        warn.push(_t("{n} register(s) held in reset", { n: h.count }) +
+          (h.port ? _t(" by {port} = {level}", { port: h.port, level: h.level }) : _t(" (by an internal signal)")));
       }
       if (simNote) warn.unshift(simNote);
-      statusEl.innerHTML = [`<b>Simulation</b> (${STAGE_INFO[state.stage][0]}) · cycle ${sim.cycle}`,
-        state.path.length ? "inputs are driven by the parent module" : "click an input port or edit values in the Signals panel",
+      statusEl.innerHTML = [`<b>${_t("Simulation")}</b> (${STAGE_INFO[state.stage][0]}) · ${_t("cycle {n}", { n: sim.cycle })}`,
+        _t(state.path.length ? "inputs are driven by the parent module" : "click an input port or edit values in the Signals panel"),
         ...warn.map((w) => `<b>${escapeHtml(w)}</b>`)].join("  ·  ");
       return;
     }
     const parts = state.cone ? [state.cone] : [
       `${escapeHtml(inst)} : ${escapeHtml(mod.label)}`,
-      STAGE_INFO[state.stage][0] + (isFlat(mod) ? ", flattened" : ""),
-      `${v.cells} cell${v.cells === 1 ? "" : "s"}`,
-      mod.src && `source: ${escapeHtml(mod.src)}`,
+      STAGE_INFO[state.stage][0] + (isFlat(mod) ? ", " + _t("flattened") : ""),
+      _t("{n} cell(s)", { n: v.cells }),
+      mod.src && _t("source: {src}", { src: escapeHtml(mod.src) }),
     ];
-    if (state.fsm && !state.cone) parts.unshift("<b>FSM</b> · drag states to rearrange · ▶ Simulate shows the current state · with </> Code open, click a state or transition");
-    if (state.timing && !state.cone) parts.unshift("<b>Timing</b> · click a net or gate for its longest path, or an endpoint in the table");
+    if (state.fsm && !state.cone) parts.unshift(_t("<b>FSM</b> · drag states to rearrange · ▶ Simulate shows the current state · with &lt;/&gt; Code open, click a state or transition"));
+    if (state.timing && !state.cone) parts.unshift(_t("<b>Timing</b> · click a net or gate for its longest path, or an endpoint in the table"));
     if (state.notice) parts.unshift(`<b>${escapeHtml(state.notice)}</b>`);
     statusEl.innerHTML = parts.filter(Boolean).join("  ·  ");
   };
@@ -1509,9 +1656,9 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     const f = $("btn-flat");
     f.disabled = !mod.flat;
     f.setAttribute("aria-pressed", String(isFlat(mod)));
-    f.title = mod.flat ? "Flatten this module (expand all sub-modules)" : "This module has no sub-modules";
-    if (state.sim) { f.disabled = true; f.title = "Flatten is not available in simulation mode"; }
-    if (state.timing) { f.disabled = true; f.title = "Timing analysis always uses the flattened netlist"; }
+    f.title = _t(mod.flat ? "Flatten this module (expand all sub-modules)" : "This module has no sub-modules");
+    if (state.sim) { f.disabled = true; f.title = _t("Flatten is not available in simulation mode"); }
+    if (state.timing) { f.disabled = true; f.title = _t("Timing analysis always uses the flattened netlist"); }
     $("timing").hidden = !state.timing;
     $("code").hidden = !state.code;
     $("fsmwrap").hidden = !state.fsm;
@@ -1519,13 +1666,13 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     $("btn-fsm").setAttribute("aria-pressed", String(state.fsm));
     const nf = fsmsHere().length, nb = nf ? 0 : fsmsBelow(1).length;
     $("btn-fsm").disabled = !nf && !nb && !state.fsm;
-    $("btn-fsm").title = nf ? `State machine diagram of this module (${nf} FSM${nf > 1 ? "s" : ""})`
-      : nb ? "State machines in sub-modules" : "No state machine found in this module or below";
+    $("btn-fsm").title = nf ? _t("State machine diagram of this module ({n} FSM)", { n: nf })
+      : _t(nb ? "State machines in sub-modules" : "No state machine found in this module or below");
     $("btn-code").setAttribute("aria-pressed", String(state.code));
     $("btn-code").disabled = !Object.keys(SOURCES).length;
     $("btn-timing").setAttribute("aria-pressed", String(state.timing));
     $("btn-timing").disabled = !DATA.views.gate;
-    if (!DATA.views.gate) $("btn-timing").title = "Timing needs the gate view (generate with --html-stages including gate)";
+    if (!DATA.views.gate) $("btn-timing").title = _t("Timing needs the gate view (generate with --html-stages including gate)");
     $("btn-sim").setAttribute("aria-pressed", String(state.sim));
     $("sim-controls").hidden = !state.sim;
     $("sim-panel").hidden = !state.sim;
@@ -1533,12 +1680,12 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     $("btn-wave").setAttribute("aria-pressed", String(state.wave));
     for (const id of ["sim-step", "sim-n", "sim-run", "sim-reset", "sim-cycle"]) $(id).hidden = state.wave;
     for (const el of document.querySelectorAll(".cone-ui")) el.hidden = state.sim || state.timing || state.fsm;
-    $("hint").textContent = state.fsm
+    $("hint").textContent = _t(state.fsm
       ? "Drag states to rearrange · hover for details · with </> Code open, click a state or a transition"
       : state.sim
       ? "Wheel: zoom · Drag: pan · Click an input port to toggle it · Hover a wire for its value"
       : state.timing ? "Wheel: zoom · Drag: pan · Numbers under gates are delays [ps] · Hover for arrival times · Click a net for its longest path"
-      : "Wheel: zoom · Drag: pan · Click a sub-module to open it · Click a net for its cone (Shift: fan-out)";
+      : "Wheel: zoom · Drag: pan · Click a sub-module to open it · Click a net for its cone (Shift: fan-out)");
     $("btn-up").disabled = state.path.length === 0;
   };
 
@@ -1729,6 +1876,13 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     else if (e.key === "Backspace" || e.key === "u") { e.preventDefault(); up(); }
   });
 
+  translateStatic();
+  $("btn-lang").textContent = LANG === "tr" ? "EN" : "TR";
+  $("btn-lang").title = LANG === "tr" ? "Switch to English" : "Türkçe'ye geç";
+  $("btn-lang").onclick = () => {
+    try { localStorage.setItem("veriview-lang", LANG === "tr" ? "en" : "tr"); } catch (e) {}
+    location.reload();
+  };
   window.addEventListener("hashchange", () => { readHash(); show(); });
   readHash();
   show();

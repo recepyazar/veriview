@@ -67,6 +67,12 @@
   .wire-hit { fill: none; stroke: transparent; stroke-width: 10; cursor: pointer; }
   .wire.sel { stroke: var(--sel); stroke-width: 3; }
   .wire.temp { stroke: var(--accent); stroke-dasharray: 5 4; }
+  .tag .body { fill: var(--accent-soft); }
+  .handle { fill: var(--paper); stroke: var(--sel); stroke-width: 2; cursor: ew-resize; }
+  .handle.v { cursor: ns-resize; }
+  .inline-edit { position: absolute; z-index: 5; padding: 2px 6px; border: 2px solid var(--accent); border-radius: 6px;
+    background: var(--panel); color: var(--text); font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; width: 130px; }
+  .inline-edit.bad { border-color: var(--bad); }
   .rubber { fill: var(--accent); fill-opacity: 0.08; stroke: var(--accent); stroke-dasharray: 4 3; }
   #code { grid-area: code; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--border); }
   #code .head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -106,6 +112,7 @@
   <div class="grid">
     <button class="btn" data-add="in" data-t>Input</button><button class="btn" data-add="out" data-t>Output</button>
     <button class="btn" data-add="const0">0</button><button class="btn" data-add="const1">1</button>
+    <button class="btn" data-add="tag" title="Net label: labels with the same name are connected (no wire needed)" style="grid-column: span 2" data-t>🏷 Label</button>
   </div>
   <h3 data-t>Gates</h3>
   <div class="grid">
@@ -150,7 +157,8 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "Selection": "Seçim", "Undo (Ctrl+Z)": "Geri al (Ctrl+Z)", "Redo (Ctrl+Y)": "Yinele (Ctrl+Y)",
     "help": "<b>Ekle:</b> soldaki düğmeler · <b>Seç:</b> tıkla, Shift/Ctrl+tık ile ekle, boş alanda sürükleyerek kutu çiz · " +
       "<b>Taşı:</b> sürükle · <b>Bağla:</b> pinden pine sürükle · <b>Kaydır:</b> Boşluk+sürükle ya da orta tuş · <b>Yakınlaştır:</b> tekerlek<br>" +
-      "<b>Kısayollar:</b> Ctrl+A tümü · Ctrl+C/X/V kopyala/kes/yapıştır · Ctrl+D çoğalt · Ctrl+Z/Y geri al/yinele · Delete sil · Esc seçimi bırak · Çift tık: isim",
+      "<b>Kısayollar:</b> Ctrl+A tümü · Ctrl+C/X/V kopyala/kes/yapıştır · Ctrl+D çoğalt · Ctrl+Z/Y geri al/yinele · Delete sil · Esc seçimi bırak<br>" +
+      "<b>Çift tık:</b> kapıya, tele, porta ya da etikete isim ver · <b>Tel:</b> seçince ortadaki tutamağı sürükle · <b>Etiket:</b> aynı isimli etiketler bağlıdır",
     "Name for this port": "Bu port için isim", "Copied.": "Kopyalandı.", "Saved {f}; opening the viewer…": "{f} kaydedildi; görüntüleyici açılıyor…",
     "Saving and opening needs the launcher (run `veriview` or `veriview --editor`). Use Download Verilog instead.":
       "Kaydedip açmak için launcher gerekli (`veriview` ya da `veriview --editor`). Bunun yerine Verilog'u indir.",
@@ -170,7 +178,11 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "Inputs": "Giriş sayısı", "Value": "Değer", "This wire comes from input {name}: rename the input port.": "Bu tel {name} girişinden geliyor: giriş portunu yeniden adlandır.",
     "Constant wires have no name.": "Sabit tellerin ismi olmaz.", "automatic": "otomatik",
     "Copied {n} items.": "{n} öğe kopyalandı.", "Cut {n} items.": "{n} öğe kesildi.", "Pasted {n} items.": "{n} öğe yapıştırıldı.",
-    "wire": "tel",
+    "wire": "tel", "🏷 Label": "🏷 Etiket", "Label": "Etiket", "Label name (same name = same net)": "Etiket adı (aynı ad = aynı net)",
+    "Net label: labels with the same name are connected (no wire needed)": "Net etiketi: aynı isimli etiketler birbirine bağlıdır (tel gerekmez)",
+    "label {name} has several drivers": "{name} etiketinin birden fazla sürücüsü var",
+    "label {name} has no driver (tied to 0)": "{name} etiketinin sürücüsü yok (0'a bağlandı)",
+    "Drag the handle to move the wire; double-click it to reset.": "Teli kaydırmak için tutamağı sürükle; sıfırlamak için çift tıkla.",
   };
   let LANG = "en";
   try { LANG = ((localStorage.getItem("veriview-lang") || navigator.language || "") + "").toLowerCase().startsWith("tr") ? "tr" : "en"; } catch (e) {}
@@ -181,7 +193,8 @@ const EDITOR = /*__EDITOR_DATA__*/null;
   $("help").innerHTML = LANG === "tr" ? TR.help :
     "<b>Add:</b> buttons on the left · <b>Select:</b> click, Shift/Ctrl+click to add, drag on empty space for a box · " +
     "<b>Move:</b> drag · <b>Connect:</b> drag from pin to pin · <b>Pan:</b> Space+drag or middle button · <b>Zoom:</b> wheel<br>" +
-    "<b>Keys:</b> Ctrl+A all · Ctrl+C/X/V copy/cut/paste · Ctrl+D duplicate · Ctrl+Z/Y undo/redo · Delete · Esc deselect · Double-click: name";
+    "<b>Keys:</b> Ctrl+A all · Ctrl+C/X/V copy/cut/paste · Ctrl+D duplicate · Ctrl+Z/Y undo/redo · Delete · Esc deselect<br>" +
+    "<b>Double-click:</b> name a gate, wire, port or label · <b>Wire:</b> select it and drag the handle in its middle · <b>Label:</b> labels with the same name are connected";
   $("btn-lang").textContent = LANG === "tr" ? "EN" : "TR";
   $("btn-lang").onclick = () => { try { localStorage.setItem("veriview-lang", LANG === "tr" ? "en" : "tr"); } catch (e) {} location.reload(); };
   const root = document.documentElement;
@@ -196,10 +209,11 @@ const EDITOR = /*__EDITOR_DATA__*/null;
   // node: {id, type, x, y, name? (ports), label? (net a gate drives), n? (inputs)};
   // wire: {id, from: {node, pin}, to: {node, pin}} (from = an output pin)
   const { GATE2, pinsOf } = VVEditor;
-  const PORTS = ["in", "out", "const0", "const1"];
+  const PORTS = ["in", "out", "const0", "const1", "tag"];
   const sizeOf = (nd) => {
     if (nd.type === "in" || nd.type === "out") return { w: 70, h: 30 };
     if (nd.type.startsWith("const")) return { w: 36, h: 30 };
+    if (nd.type === "tag") return { w: Math.max(50, 22 + String(nd.name || "").length * 7.4), h: 24 };
     if (nd.type === "dff" || nd.type === "dffr") return { w: 70, h: nd.type === "dffr" ? 80 : 64 };
     if (nd.type === "mux") return { w: 50, h: 70 };
     const n = pinsOf(nd).ins.length;
@@ -207,6 +221,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
   };
   const pinPos = (nd, pin, isOut) => {
     const { w, h } = sizeOf(nd), p = pinsOf(nd);
+    if (nd.type === "tag") return { x: nd.x, y: nd.y + h / 2 };   // one pin, both directions
     if (isOut) return { x: nd.x + w, y: nd.y + h / 2 };
     if (nd.type === "mux" && pin === "S") return { x: nd.x + w / 2, y: nd.y + h - 6 };
     const ins = nd.type === "mux" ? ["A", "B"] : p.ins;
@@ -267,6 +282,11 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     const { w, h } = sizeOf(nd), t = nd.type, g = el("g", {});
     const bubble = ["nand", "nor", "xnor", "not"].includes(t);
     const bw = bubble ? w - 8 : w;
+    if (t === "tag") {
+      g.append(el("path", { class: "body", d: `M0 ${h / 2} L10 0 H${w} V${h} H10 Z` }));
+      g.append(el("text", { class: "lbl", x: 14, y: h / 2 + 4 }, nd.name));
+      return g;
+    }
     if (t === "in") g.append(el("path", { class: "body", d: `M0 0 H${w - 12} L${w} ${h / 2} L${w - 12} ${h} H0 Z` }));
     else if (t === "out") g.append(el("path", { class: "body", d: `M12 0 H${w} V${h} H12 L0 ${h / 2} Z` }));
     else if (t.startsWith("const")) g.append(el("rect", { class: "body", width: w, height: h, rx: 4 }));
@@ -295,10 +315,17 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     }
     return g;
   };
-  const route = (a, b) => {   // orthogonal wire: out pin -> midpoint x -> in pin
-    const mx = Math.max(a.x + 12, (a.x + b.x) / 2);
-    return b.x > a.x + 12 ? `M${a.x} ${a.y} H${mx} V${b.y} H${b.x}` : `M${a.x} ${a.y} H${a.x + 12} V${(a.y + b.y) / 2} H${b.x - 12} V${b.y} H${b.x}`;
+  // orthogonal wire from an output pin a to an input pin b. The adjustable segment (vertical at
+  // x = w.mx for forward wires, horizontal at y = w.my for backward ones) can be dragged by a handle.
+  const geom = (a, b, w) => {
+    if (b.x > a.x + 12) {
+      const mx = w && w.mx !== undefined ? w.mx : Math.max(a.x + 12, (a.x + b.x) / 2);
+      return { d: `M${a.x} ${a.y} H${mx} V${b.y} H${b.x}`, hx: mx, hy: (a.y + b.y) / 2, axis: "x" };
+    }
+    const my = w && w.my !== undefined ? w.my : (a.y + b.y) / 2;
+    return { d: `M${a.x} ${a.y} H${a.x + 12} V${my} H${b.x - 12} V${b.y} H${b.x}`, hx: (a.x + b.x) / 2, hy: my, axis: "y" };
   };
+  const route = (a, b, w) => geom(a, b, w).d;
   let rubber = null;
   function draw() {
     svg.textContent = "";
@@ -312,7 +339,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     for (const w of D.wires) {
       const a = nodes[w.from.node], b = nodes[w.to.node];
       if (!a || !b) continue;
-      const pa = pinPos(a, w.from.pin, true), d = route(pa, pinPos(b, w.to.pin, false));
+      const pa = pinPos(a, w.from.pin, true), d = route(pa, pinPos(b, w.to.pin, false), w);
       svg.append(el("path", { class: "wire" + (sel.wires.has(w.id) ? " sel" : ""), d }));
       svg.append(el("path", { class: "wire-hit", d, "data-wire": w.id }));
       if (a.label && !labelled.has(a.id) && !PORTS.includes(a.type)) {   // net name once, next to the driving pin
@@ -321,9 +348,13 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       }
     }
     for (const nd of D.nodes) {
-      const g = el("g", { class: "node" + (sel.nodes.has(nd.id) ? " sel" : ""), transform: `translate(${nd.x},${nd.y})`, "data-node": nd.id });
+      const g = el("g", { class: "node" + (nd.type === "tag" ? " tag" : "") + (sel.nodes.has(nd.id) ? " sel" : ""), transform: `translate(${nd.x},${nd.y})`, "data-node": nd.id });
       g.append(symbol(nd));
       const p = pinsOf(nd);
+      if (nd.type === "tag") {
+        const used = D.wires.some((w) => w.from.node === nd.id || w.to.node === nd.id);
+        g.append(el("circle", { class: "pin" + (used ? "" : " free"), cx: 0, cy: sizeOf(nd).h / 2, r: 5, "data-pin": "T", "data-dir": "tag" }));
+      }
       for (const pin of p.ins) {
         const pp = pinPos({ ...nd, x: 0, y: 0 }, pin, false);
         g.append(el("circle", { class: "pin" + (connected.has(`${nd.id}:${pin}`) ? "" : " free"), cx: pp.x, cy: pp.y, r: 5, "data-pin": pin, "data-dir": "in" }));
@@ -333,6 +364,16 @@ const EDITOR = /*__EDITOR_DATA__*/null;
         g.append(el("circle", { class: "pin", cx: pp.x, cy: pp.y, r: 5, "data-pin": pin, "data-dir": "out" }));
       }
       svg.append(g);
+    }
+    // bend handles for selected wires
+    for (const w of D.wires) {
+      if (!sel.wires.has(w.id)) continue;
+      const a = nodes[w.from.node], b = nodes[w.to.node];
+      if (!a || !b) continue;
+      const gm = geom(pinPos(a, w.from.pin, true), pinPos(b, w.to.pin, false), w);
+      const hd = el("rect", { class: "handle" + (gm.axis === "y" ? " v" : ""), x: gm.hx - 5, y: gm.hy - 5, width: 10, height: 10, rx: 2, "data-handle": w.id });
+      hd.append(el("title", {}, _t("Drag the handle to move the wire; double-click it to reset.")));
+      svg.append(hd);
     }
     if (rubber) svg.append(rubber.el);
     generate();
@@ -358,7 +399,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       if (!nd) return;
       if (nd.type === "in") { const p = document.createElement("div"); p.textContent = _t("This wire comes from input {name}: rename the input port.", { name: nd.name }); box.append(p); return; }
       if (nd.type.startsWith("const")) { const p = document.createElement("div"); p.textContent = _t("Constant wires have no name."); box.append(p); return; }
-    } else what.textContent = nd.type === "in" || nd.type === "out" ? (nd.type === "in" ? _t("Input") : _t("Output"))
+    } else what.textContent = nd.type === "tag" ? _t("Label") : nd.type === "in" || nd.type === "out" ? (nd.type === "in" ? _t("Input") : _t("Output"))
       : nd.type.startsWith("const") ? "const" : (nd.type === "dffr" ? "DFF+R" : nd.type.toUpperCase()) + nd.id;
     const field = (labelText, value, placeholder, onSet) => {
       const l = document.createElement("label"); l.textContent = labelText;
@@ -371,6 +412,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       box.append(l, i);
     };
     if (nd.type === "in" || nd.type === "out") field(_t("Port name"), nd.name, "", (v) => { if (v) nd.name = v; });
+    else if (nd.type === "tag") field(_t("Label name (same name = same net)"), nd.name, "", (v) => { if (v) nd.name = v; });
     else if (!nd.type.startsWith("const")) {
       field(viaWire ? _t("Net name (all wires from this output)") : _t("Net name (the wire this gate drives)"), nd.label,
         _t("automatic") + `: ${nd.type === "dff" || nd.type === "dffr" ? "q" : nd.type}${nd.id}`, (v) => { if (v) nd.label = v; else delete nd.label; });
@@ -410,6 +452,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     const nd = { id: D.seq++, type, x: Math.round((c.x - 40 + off) / 10) * 10, y: Math.round((c.y - 20 + off) / 10) * 10 };
     if (type === "in") nd.name = uniqueName(["a", "b", "c", "d", "clk"].find((n) => !usedNames().has(n)) || "in");
     if (type === "out") nd.name = uniqueName("y");
+    if (type === "tag") nd.name = "net" + (D.nodes.filter((n) => n.type === "tag").length + 1);
     if (GATE2.includes(type)) nd.n = 2;
     D.nodes.push(nd);
     clearSel(); sel.nodes.add(nd.id);
@@ -422,9 +465,13 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     D.wires = D.wires.filter((w) => !sel.wires.has(w.id) && !sel.nodes.has(w.from.node) && !sel.nodes.has(w.to.node));
     clearSel(); commit(); draw();
   }
-  function connect(a, b) {  // a, b: {node, pin, dir}
+  function connect(a, b) {  // a, b: {node, pin, dir}; dir "tag" = a net label's pin (either direction)
     if (a.dir === b.dir || (a.node === b.node && a.pin === b.pin)) return;
-    const from = a.dir === "out" ? a : b, to = a.dir === "out" ? b : a;
+    let from, to;
+    if (a.dir === "tag" || b.dir === "tag") {
+      const tg = a.dir === "tag" ? a : b, other = tg === a ? b : a;
+      if (other.dir === "out") { from = other; to = tg; } else { from = tg; to = other; }
+    } else { from = a.dir === "out" ? a : b; to = a.dir === "out" ? b : a; }
     D.wires = D.wires.filter((w) => !(w.to.node === to.node && w.to.pin === to.pin));  // one driver per input
     D.wires.push({ id: D.seq++, from: { node: from.node, pin: from.pin }, to: { node: to.node, pin: to.pin } });
     commit(); draw();
@@ -453,7 +500,8 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     clearSel();
     for (const n of c.nodes) {
       const nn = { ...n, id: D.seq++, x: n.x + off, y: n.y + off };
-      if (nn.name) { nn.name = uniqueName(nn.name, used); used.add(nn.name); }
+      // ports get unique names; net labels keep theirs, so a pasted label joins the same net
+      if (nn.name && nn.type !== "tag") { nn.name = uniqueName(nn.name, used); used.add(nn.name); }
       if (nn.label) { nn.label = uniqueName(nn.label, used); used.add(nn.label); }
       map.set(n.id, nn.id);
       D.nodes.push(nn); sel.nodes.add(nn.id);
@@ -475,6 +523,14 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     const nodeEl = e.target.closest && e.target.closest(".node");
     const wireEl = e.target.closest && e.target.closest(".wire-hit");
     const add = e.shiftKey || e.ctrlKey || e.metaKey;
+    const handleEl = e.target.closest && e.target.closest(".handle");
+    if (handleEl) {
+      const w = D.wires.find((x) => x.id === +handleEl.dataset.handle);
+      const nodes = byId(), gm = geom(pinPos(nodes[w.from.node], w.from.pin, true), pinPos(nodes[w.to.node], w.to.pin, false), w);
+      drag = { kind: "bend", w, axis: gm.axis, moved: false };
+      svg.setPointerCapture(e.pointerId);
+      return;
+    }
     if (e.button === 1 || spaceDown) {
       e.preventDefault();
       drag = { kind: "pan", x: e.clientX, y: e.clientY, vb: { ...vb }, k: vb.w / (svg.getBoundingClientRect().width || 1) };
@@ -517,6 +573,9 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       drag.moved = true;
       for (const [n, x, y] of drag.orig) { n.x = x + dx; n.y = y + dy; }
       draw();
+    } else if (drag.kind === "bend") {
+      if (drag.axis === "x") drag.w.mx = Math.round(p.x / 10) * 10; else drag.w.my = Math.round(p.y / 10) * 10;
+      drag.moved = true; draw();
     } else if (drag.kind === "wire") {
       drag.tmp.setAttribute("d", `M${drag.sp.x} ${drag.sp.y} L${p.x} ${p.y}`);
       for (const h of svg.querySelectorAll(".pin.hot")) h.classList.remove("hot");
@@ -541,22 +600,61 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       const pinEl = under && under.closest && under.closest(".pin");
       if (pinEl) connect(drag.start, { node: +pinEl.closest(".node").dataset.node, pin: pinEl.dataset.pin, dir: pinEl.dataset.dir });
     }
-    if (drag && drag.kind === "move" && drag.moved) commit();
+    if (drag && (drag.kind === "move" || drag.kind === "bend") && drag.moved) commit();
     // a plain click on one item of a multi-selection selects just that item
     if (drag && drag.kind === "move" && !drag.moved && selCount() > 1) { clearSel(); sel.nodes.add(drag.id); draw(); }
     if (drag && drag.kind === "box") { rubber = null; draw(); }
     $("canvas").classList.remove("panning");
     drag = null;
   });
+  // double-click: name things right where they are
+  function inlineEdit(cx, cy, value, placeholder, onSet) {
+    for (const x of document.querySelectorAll(".inline-edit")) x.remove();
+    const box = $("canvas").getBoundingClientRect();
+    const i = document.createElement("input");
+    i.className = "inline-edit"; i.value = value || ""; i.placeholder = placeholder || ""; i.spellcheck = false;
+    i.style.left = Math.max(4, Math.min(box.width - 140, cx - box.left - 65)) + "px";
+    i.style.top = Math.max(4, cy - box.top - 34) + "px";
+    $("canvas").append(i);
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      const v = i.value.trim();
+      if (ok && v && !isIdent(v)) { i.classList.add("bad"); return; }
+      done = true; i.remove();
+      if (ok && v !== (value || "")) { onSet(v); commit(); draw(); }
+    };
+    i.oninput = () => i.classList.toggle("bad", !!i.value && !isIdent(i.value.trim()));
+    i.onkeydown = (ev) => { ev.stopPropagation(); if (ev.key === "Enter") finish(true); if (ev.key === "Escape") finish(false); };
+    i.onblur = () => finish(true);
+    setTimeout(() => { i.focus(); i.select(); });
+  }
+  function renameNode(nd, cx, cy) {
+    if (nd.type.startsWith("const")) { nd.type = nd.type === "const0" ? "const1" : "const0"; commit(); draw(); return; }
+    if (nd.type === "in" || nd.type === "out" || nd.type === "tag") {
+      inlineEdit(cx, cy, nd.name, "", (v) => { if (v) nd.name = v; });
+    } else {
+      inlineEdit(cx, cy, nd.label, `${nd.type === "dff" || nd.type === "dffr" ? "q" : nd.type}${nd.id}`, (v) => { if (v) nd.label = v; else delete nd.label; });
+    }
+  }
   svg.addEventListener("dblclick", (e) => {
+    const handleEl = e.target.closest && e.target.closest(".handle");
+    if (handleEl) { const w = D.wires.find((x) => x.id === +handleEl.dataset.handle); delete w.mx; delete w.my; commit(); draw(); return; }
     const target = (e.target.closest && (e.target.closest(".node") || e.target.closest(".wire-hit")));
     if (!target) return;
     clearSel();
-    if (target.dataset.node) sel.nodes.add(+target.dataset.node); else sel.wires.add(+target.dataset.wire);
-    draw();
-    const nd = target.dataset.node && byId()[+target.dataset.node];
-    if (nd && nd.type.startsWith("const")) { nd.type = nd.type === "const0" ? "const1" : "const0"; commit(); draw(); return; }
-    const f = $("prop-name"); if (f) { f.focus(); f.select(); }
+    const nodes = byId();
+    if (target.dataset.node) {
+      const nd = nodes[+target.dataset.node];
+      sel.nodes.add(nd.id); draw();
+      renameNode(nd, e.clientX, e.clientY);
+    } else {
+      // a wire is named by naming its net, i.e. the gate (or input port) driving it
+      const w = D.wires.find((x) => x.id === +target.dataset.wire);
+      sel.wires.add(w.id); draw();
+      const d = nodes[w.from.node];
+      if (d) renameNode(d, e.clientX, e.clientY);
+    }
   });
   const typing = (e) => e.target && e.target.matches && e.target.matches("input, textarea");
   window.addEventListener("keydown", (e) => {

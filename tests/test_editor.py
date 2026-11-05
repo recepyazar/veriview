@@ -129,3 +129,44 @@ def test_named_design_compiles(tmp_path):
     # the names survive into the viewer's RTL view (the optimized view may merge them into the ports)
     names = json.loads(data.read_text())["views"]["elab"]["modules"]["ha"]["hier"]["net"]["names"]
     assert {"sum_bit", "carry"} <= set(names)
+
+
+# net labels (Logisim-style tunnels): a wire into tag "c" drives every tag named "c"
+TAGGED = {
+    "nodes": [node(1, "in", name="a"), node(2, "in", name="b"), node(3, "and"), node(4, "tag", name="carry"),
+              node(5, "tag", name="carry"), node(6, "not"), node(7, "out", name="y"), node(8, "tag", name="carry"),
+              node(9, "out", name="c")],
+    "wires": [W(1, "Y", 3, "A"), W(2, "Y", 3, "B"), W(3, "Y", 4, "T"), W(5, "T", 6, "A"), W(6, "Y", 7, "A"),
+              W(8, "T", 9, "A")],
+}
+
+
+def test_net_labels_connect(tmp_path):
+    res = to_verilog(tmp_path, TAGGED)
+    text = res["text"]
+    assert res["warn"] == []
+    # the label names the driving gate's net, and every tag with that name reads it
+    assert "assign carry = a & b;" in text
+    assert "assign not6 = ~carry;" in text and "assign c = carry;" in text
+
+
+def test_net_label_warnings(tmp_path):
+    d = {"nodes": [node(1, "in", name="a"), node(2, "tag", name="x"), node(3, "out", name="y"),
+                   node(4, "in", name="b"), node(5, "tag", name="z"), node(6, "tag", name="z"),
+                   node(7, "tag", name="z"), node(8, "out", name="w")],
+         "wires": [W(2, "T", 3, "A"), W(1, "Y", 5, "T"), W(4, "Y", 6, "T"), W(7, "T", 8, "A")]}
+    warn = " | ".join(to_verilog(tmp_path, d)["warn"])
+    assert "label x has no driver" in warn
+    assert "label z has several drivers" in warn
+
+
+@needs_tools
+def test_tagged_design_simulates(tmp_path):
+    src = tmp_path / "tagged.v"
+    src.write_text(to_verilog(tmp_path, TAGGED, "tagged")["text"])
+    data = build(tmp_path, src, stage="opt")
+    ops, exp = [], []
+    for a, b in itertools.product((0, 1), repeat=2):
+        ops += [["set", "a", a], ["set", "b", b], ["get", "y"], ["get", "c"]]
+        exp += [1 - (a & b), a & b]
+    assert simulate(tmp_path, data, "opt", ops) == exp

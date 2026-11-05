@@ -5,12 +5,15 @@
  * design: {nodes: [{id, type, name?, label?, n?, x, y}], wires: [{from: {node, pin}, to: {node, pin}}]}
  *         name:  port name (in/out); label: optional name of the net a gate / flip-flop drives
  * types:  in, out, const0, const1, not, buf, and/or/nand/nor/xor/xnor (n = 2..4 inputs),
- *         mux (A, B, S -> Y = S ? B : A), dff (D, CLK -> Q), dffr (D, CLK, RST_N -> Q)
+ *         mux (A, B, S -> Y = S ? B : A), dff (D, CLK -> Q), dffr (D, CLK, RST_N -> Q),
+ *         tag (net label, pin T): all tags with the same name are one net (like Logisim tunnels);
+ *         a wire *into* a tag drives the net, wires *out of* tags read it
  */
 const GATE2 = ["and", "or", "nand", "nor", "xor", "xnor"];
 function pinsOf(nd) {
   switch (nd.type) {
     case "in": case "const0": case "const1": return { ins: [], outs: ["Y"] };
+    case "tag": return { ins: [], outs: [] };   // one bidirectional pin "T", handled by the editor
     case "out": return { ins: ["A"], outs: [] };
     case "not": case "buf": return { ins: ["A"], outs: ["Y"] };
     case "mux": return { ins: ["A", "B", "S"], outs: ["Y"] };
@@ -34,15 +37,43 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
   const taken = new Set([...ins, ...outs].map((p) => p.name));
   const labelOf = new Map();
   for (const n of D.nodes) {
-    if (!n.label || ["in", "out", "const0", "const1"].includes(n.type)) continue;
+    if (!n.label || ["in", "out", "const0", "const1", "tag"].includes(n.type)) continue;
     if (!isId(n.label) || KEYWORDS.has(n.label)) { warn.push(t("invalid name {name} (letters, digits, _; not a keyword)", { name: n.label })); continue; }
     if (taken.has(n.label)) { warn.push(t("name {name} is used twice", { name: n.label })); continue; }
     taken.add(n.label); labelOf.set(n.id, n.label);
   }
+  // net labels: name -> wires driving it (wires into a tag)
+  const tagDrivers = new Map(), tagWarned = new Set();
+  for (const w of D.wires) {
+    const tn = byId[w.to.node];
+    if (tn && tn.type === "tag") { if (!tagDrivers.has(tn.name)) tagDrivers.set(tn.name, []); tagDrivers.get(tn.name).push(w); }
+  }
+  for (const tg of D.nodes.filter((n) => n.type === "tag")) {
+    if (!isId(tg.name) || KEYWORDS.has(tg.name)) warn.push(t("invalid name {name} (letters, digits, _; not a keyword)", { name: tg.name }));
+  }
+  // a label names the net of its (single) driving gate, unless that gate has its own name
+  for (const [name, ds] of tagDrivers) {
+    const d = ds.length === 1 ? byId[ds[0].from.node] : null;
+    if (d && !["in", "out", "const0", "const1", "tag"].includes(d.type) && !labelOf.has(d.id) && isId(name) && !KEYWORDS.has(name) && !taken.has(name)) {
+      labelOf.set(d.id, name); taken.add(name);
+    }
+  }
+  // the wire that really drives (nd, pin): follows net labels to their driver
+  const srcWire = (nd, pin) => {
+    const w = D.wires.find((x) => x.to.node === nd.id && x.to.pin === pin);
+    const from = w && byId[w.from.node];
+    if (!from || from.type !== "tag") return w;
+    const ds = tagDrivers.get(from.name) || [];
+    if (ds.length !== 1 && !tagWarned.has(from.name)) {
+      tagWarned.add(from.name);
+      warn.push(t(ds.length ? "label {name} has several drivers" : "label {name} has no driver (tied to 0)", { name: from.name }));
+    }
+    return ds.length ? ds[0] : null;
+  };
   const net = (nd) => nd.type === "in" ? ident(nd.name) : nd.type === "const0" ? "1'b0" : nd.type === "const1" ? "1'b1"
     : labelOf.get(nd.id) || ((nd.type === "dff" || nd.type === "dffr") ? `q${nd.id}` : `${nd.type}${nd.id}`);
   const drv = (nd, pin) => {
-    const w = D.wires.find((x) => x.to.node === nd.id && x.to.pin === pin);
+    const w = srcWire(nd, pin);
     if (!w || !byId[w.from.node]) {
       if (nd.type === "out") warn.push(t("output {name} is not driven (tied to 0)", { name: nd.name }));
       else warn.push(t("unconnected input {pin} of {node} (tied to 0)", { pin, node: `${nd.type.toUpperCase()}${nd.id}` }));
@@ -50,7 +81,7 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
     }
     return net(byId[w.from.node]);
   };
-  const gates = D.nodes.filter((n) => !["in", "out", "const0", "const1"].includes(n.type));
+  const gates = D.nodes.filter((n) => !["in", "out", "const0", "const1", "tag"].includes(n.type));
   const comb = gates.filter((n) => n.type !== "dff" && n.type !== "dffr"), ffs = gates.filter((n) => n.type === "dff" || n.type === "dffr");
   const OP = { and: " & ", or: " | ", xor: " ^ ", nand: " & ", nor: " | ", xnor: " ^ " };
   const L = [];
@@ -82,7 +113,12 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
   L.push("", "endmodule", "");
   // combinational loops (through gates only; flip-flops break loops)
   const succ = new Map(comb.map((g) => [g.id, []]));
-  for (const w of D.wires) if (succ.has(w.from.node) && succ.has(w.to.node)) succ.get(w.from.node).push(w.to.node);
+  for (const g of comb) {
+    for (const pin of pinsOf(g).ins) {
+      const w = srcWire(g, pin);
+      if (w && succ.has(w.from.node)) succ.get(w.from.node).push(g.id);
+    }
+  }
   const state = new Map(), stack = [];
   const dfs = (v) => {
     state.set(v, 1); stack.push(v);

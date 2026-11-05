@@ -198,7 +198,7 @@ def test_select_parameterized(tmp_path):
 
 def test_select_default_output_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    assert vv(EX / "rca" / "rca.f", "--select", "fa_block[3].fa_inst") == 0
+    assert vv(EX / "rca" / "rca.f", "--select", "fa_block[3].fa_inst", "--svg") == 0
     assert is_svg(tmp_path / "fa_block_3_.fa_inst.svg")
 
 
@@ -237,14 +237,48 @@ def test_background_options(tmp_path):
 
 
 def test_output_directory(tmp_path):
-    assert vv(EX / "counter.sv", "-o", f"{tmp_path}/dir/") == 0
+    assert vv(EX / "counter.sv", "--svg", "-o", f"{tmp_path}/dir/") == 0
     assert is_svg(tmp_path / "dir" / "counter.svg")
+    assert vv(EX / "counter.sv", "--html-stages", "opt", "-o", f"{tmp_path}/web/") == 0
+    assert (tmp_path / "web" / "counter.html").is_file()
 
 
 def test_default_output_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    assert vv(EX / "rca" / "rca.f", "-t", "fa") == 0
+    assert vv(EX / "rca" / "rca.f", "-t", "fa", "--svg") == 0
     assert is_svg(tmp_path / "fa.svg")
+
+
+def test_default_is_the_html_viewer(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert vv(EX / "counter.sv") == 0
+    assert (tmp_path / "counter.html").is_file() and not list(tmp_path.glob("*.svg"))
+    # SVG-only options and an .svg output pick the SVG schematic
+    assert vv(EX / "rca" / "rca.f", "--flatten", "--cone", "cout") == 0
+    assert is_svg(tmp_path / "rca.svg")
+
+
+@pytest.mark.parametrize("folder, expect", [
+    ("fsm", "fsm.html"),     # uses fsm.f
+    ("rca", "rca.html"),     # uses rca.f
+    ("mux", None),           # two .sv files, two tops -> Yosys picks one or fails; only check it runs
+])
+def test_folder_input(tmp_path, monkeypatch, folder, expect):
+    monkeypatch.chdir(tmp_path)
+    status = vv(EX / folder, "--html-stages", "opt")
+    if expect:
+        assert status == 0 and (tmp_path / expect).is_file()
+
+
+def test_folder_without_sources(tmp_path, capsys):
+    (tmp_path / "empty").mkdir()
+    assert vv(tmp_path / "empty") == 1
+    assert "No .v/.sv/.f files" in capsys.readouterr().err
+
+
+def test_output_kind_conflicts(tmp_path, capsys):
+    assert vv(EX / "counter.sv", "--svg", "--html") == 1
+    assert vv(EX / "counter.sv", "--html", "-o", tmp_path / "x.svg") == 1
 
 
 def test_path_with_spaces(tmp_path):

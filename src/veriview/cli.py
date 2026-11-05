@@ -21,35 +21,44 @@ from .watch import BuildResult, watch
 
 HDL_SUFFIXES = (".v", ".sv", ".svh", ".vh", ".f")
 
+DESCRIPTION = """\
+Interactive schematics, simulation, timing and FSM diagrams for Verilog/SystemVerilog,
+built on Yosys and netlistsvg.
+
+quick start:
+  veriview design.sv                 open the interactive viewer (writes design.html)
+  veriview rtl/                      a whole folder (uses its .f file, or all .v/.sv files)
+  veriview design.f --watch          live: the browser reloads on every save
+  veriview design.sv -o design.svg   a plain SVG schematic instead
+"""
+
 EPILOG = """\
+more examples:
+  veriview design.f --timing 2ns     gate-level timing report (setup/hold, fmax, area)
+  veriview design.f --fsm            list the state machines
+  veriview design.f -o x.svg --select u_core/u_alu --depth 1
+  veriview design.f -o x.svg --flatten --cone o_valid
+
 file list (.f) syntax:
   one source per line, // and # comments, +incdir+<dir>[+<dir>...],
   +define+<N>[=<V>][+...], -f/-F <nested.f>, -v <lib file>, -I<dir>, -D<N>,
   $VAR / ${VAR} / $(VAR) environment variables.
   Relative paths are resolved against the directory of the .f file.
-
-examples:
-  veriview counter.sv
-  veriview design.f -t cpu_core -o build/cpu.svg
-  veriview rtl/*.sv -I rtl/include -D SYNTH --flatten --open
-  veriview design.f -t cpu_core --html --open      # interactive hierarchy viewer
-  veriview design.f --select u_core/u_alu --depth 1 # one sub-block, one level expanded
-  veriview design.f --cone o_valid                  # only the logic driving o_valid
-  veriview design.f --timing 2ns                    # gate-level timing report (setup/hold, fmax, area)
 """
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="veriview",
-        description="Generate SVG schematics from Verilog/SystemVerilog using Yosys and netlistsvg.",
+        description=DESCRIPTION,
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("inputs", nargs="*", metavar="input",
-                   help=".v/.sv/.svh files and/or .f file lists (a trailing non-file word is the top module)")
+                   help=".v/.sv files, .f file lists or a folder (a trailing non-file word is the top module)")
     p.add_argument("-t", "--top", help="top module (default: auto-detected)")
-    p.add_argument("-o", "--output", help="output path (.svg, or .html with --html; with --split: a directory)")
+    p.add_argument("-o", "--output", help="output file: name.html (viewer, default) or name.svg (schematic); "
+                                         "with --split: a directory")
     p.add_argument("-f", "-F", dest="filelists", action="append", default=[], metavar="FILE.f",
                    help="read a file list (repeatable)")
     p.add_argument("-I", "--incdir", dest="incdirs", action="append", default=[], metavar="DIR",
@@ -67,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cone", action="append", default=[], metavar="SIGNAL",
                    help="draw only the logic driving SIGNAL, stopping at registers (repeatable)")
     p.add_argument("--split", action="store_true", help="render every module to its own SVG")
+    p.add_argument("--svg", action="store_true", help="write a plain SVG schematic instead of the HTML viewer")
     p.add_argument("--html", action="store_true",
                    help="write an interactive HTML viewer (hierarchy navigation, stage/flatten switches, "
                         "cone highlighting)")
@@ -86,7 +96,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skin", type=Path, help="custom netlistsvg skin")
     p.add_argument("--bg", default="white", metavar="COLOR|none", help="background color (default: white)")
     p.add_argument("--keep-json", action="store_true", help="keep the Yosys JSON netlist next to the SVG")
-    p.add_argument("--open", action="store_true", help="open the result")
+    p.add_argument("--open", action=argparse.BooleanOptionalAction, default=None,
+                   help="open the result (default: the viewer opens when no -o is given in a terminal)")
     p.add_argument("--watch", action="store_true",
                    help="rebuild whenever a source file changes; with --html, serve the viewer on a local "
                         "web server that reloads automatically")
@@ -112,8 +123,39 @@ def _split_positionals(args: argparse.Namespace, parser: argparse.ArgumentParser
     return inputs + args.filelists
 
 
+SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "build", "dist", "__pycache__"}
+
+
+def _expand_dirs(inputs: list[str]) -> tuple[list[str], str | None]:
+    """A folder becomes its .f file list (if it has exactly one) or all .v/.sv files in it."""
+    out: list[str] = []
+    stem = None
+    for item in inputs:
+        d = Path(item)
+        if not d.is_dir():
+            out.append(item)
+            continue
+        stem = stem or d.resolve().name
+        lists = sorted(d.glob("*.f"))
+        if len(lists) == 1:
+            log.info(f"Using file list {lists[0]}")
+            out.append(str(lists[0]))
+            continue
+        if len(lists) > 1:
+            raise VeriViewError(f"{item} contains several file lists ({', '.join(p.name for p in lists)}); "
+                                "pass the one you want.")
+        files = sorted(str(f) for f in d.rglob("*")
+                       if f.suffix in (".v", ".sv") and f.is_file()
+                       and not any(part in SKIP_DIRS or part.startswith(".") for part in f.relative_to(d).parts[:-1]))
+        if not files:
+            raise VeriViewError(f"No .v/.sv/.f files found in {item}")
+        log.info(f"Using {len(files)} source file(s) from {item}")
+        out += files
+    return out, stem
+
+
 def _output_path(args: argparse.Namespace, inputs: list[str], suffix: str, stem: str | None = None) -> Path:
-    stem = stem or args.top or Path(inputs[0]).stem
+    stem = stem or args.top or getattr(args, "stem_hint", None) or Path(inputs[0]).stem
     if args.output:
         out = Path(args.output)
         if args.output.endswith(("/", "\\")) or out.is_dir():
@@ -168,6 +210,23 @@ def run(argv: list[str] | None = None) -> int:
     log.set_quiet(args.quiet)
 
     inputs = _split_positionals(args, parser)
+    inputs, args.stem_hint = _expand_dirs(inputs)
+
+    # Output kind: the HTML viewer by default; a plain SVG with --svg, -o *.svg or SVG-only options
+    out_ext = Path(args.output).suffix.lower() if args.output else ""
+    report = bool(args.timing or args.fsm)
+    if not report and args.svg and (args.html or out_ext == ".html"):
+        raise VeriViewError("--svg and an HTML output cannot be combined.")
+    if not report and args.html and out_ext == ".svg":
+        raise VeriViewError("--html writes an .html file; use -o <name>.html (or drop --html for an SVG).")
+    svg_only = args.split or args.cone or args.depth is not None
+    want_svg = args.svg or out_ext == ".svg" or (svg_only and not args.html)
+    explicit_html = args.html
+    if not report and not want_svg:
+        args.html = True
+    if args.open is None:  # open the viewer when the user just typed `veriview design.sv`
+        import sys
+        args.open = bool(args.html and not args.output and not explicit_html and sys.stdout.isatty())
     if args.top is not None and not TOP_RE.match(args.top):
         raise VeriViewError(f"Invalid top module name: '{args.top}'")
     if args.skin and not args.skin.is_file():

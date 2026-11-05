@@ -78,10 +78,19 @@ Both put the `veriview` command in `~/.local/bin`. Plain `pip install` also work
 ## Usage
 
 ```bash
+veriview design.sv            # opens the interactive viewer (writes design.html)
+veriview rtl/                 # a whole folder: its .f file, or all .v/.sv files in it
+veriview design.f --watch     # live: the browser reloads whenever you save
+veriview design.sv -o x.svg   # a plain SVG schematic instead of the viewer
+```
+
+That is all you need day to day: the top module is detected automatically and every feature (views, flatten, timing, FSM diagrams, simulation, source code) is a button in the viewer. The full syntax is
+
+```bash
 veriview [options] <input>... [top_module]
 ```
 
-`<input>` is one or more `.v`/`.sv` files and/or `.f` file lists.
+where `<input>` is one or more `.v`/`.sv` files, `.f` file lists or a folder. The output kind follows `-o`: `name.html` (viewer, default) or `name.svg` (schematic); `--svg` picks the SVG without naming the file. The viewer opens in the browser automatically when no `-o` is given in a terminal (`--open` / `--no-open` to change that).
 
 | Option | Description |
 | :--- | :--- |
@@ -96,7 +105,8 @@ veriview [options] <input>... [top_module]
 | `--depth <N>` | Expand N levels of hierarchy below the top; deeper sub-modules stay boxes. |
 | `--cone <signal>` | Draw only the logic driving `signal`, stopping at registers (repeatable). |
 | `--split` | Render every module into its own SVG. |
-| `--html` | Write an interactive HTML viewer instead of an SVG (default output: `<top>.html`). |
+| `--svg` | Write a plain SVG schematic instead of the HTML viewer. |
+| `--html` | Write the HTML viewer (the default; useful to be explicit in scripts). |
 | `--fsm` | Print the state machines found in the design (states, encodings, transitions); with `-o file.dot` also write a Graphviz diagram. |
 | `--timing <period>` | Print a gate-level static timing report (setup/hold, critical path, fmax, area), e.g. `--timing 2ns` or `--timing 250MHz`. |
 | `--input-delay`, `--output-delay`, `--uncertainty` | Timing constraints for `--timing` (defaults `100ps`, `0ps`, `0ps`). |
@@ -105,7 +115,7 @@ veriview [options] <input>... [top_module]
 | `--skin <file.svg>` | Custom [netlistsvg skin](https://github.com/nturley/netlistsvg#skins). |
 | `--bg <color\|none>` | Background color (default `white`). |
 | `--keep-json` | Keep the Yosys JSON netlist next to the SVG. |
-| `--open` | Open the generated SVG. |
+| `--open`, `--no-open` | Open the result in the browser (default: only the viewer, only without `-o`). |
 | `--watch` | Rebuild whenever a source file changes (Ctrl+C to stop). With `--html`, serves the viewer at `http://127.0.0.1:8765/` and reloads the browser automatically. |
 | `--port <N>` | Port for `--watch --html` (default 8765; the next free port is used if busy). |
 | `--install-deps` | Install missing dependencies. |
@@ -113,6 +123,8 @@ veriview [options] <input>... [top_module]
 | `-q`, `--quiet` | Only print warnings and errors. |
 | `-V`, `--version` / `-h`, `--help` | Version / help. |
 
+> **6.0:** the default output is the HTML viewer (it was an SVG). Use `-o name.svg` or `--svg` for the schematic; `--cone`, `--depth` and `--split` still produce SVGs.
+>
 > **Breaking change in 4.0:** `-f` now means *file list* (as in other EDA tools). Use `--flatten` to flatten the hierarchy.
 >
 > **5.0:** VeriView is now a Python package (`veriview` command). Options are unchanged; `veriview.sh` remains as a wrapper. Invalid command-line arguments now exit with code 2.

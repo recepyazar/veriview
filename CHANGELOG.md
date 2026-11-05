@@ -1,5 +1,11 @@
 # Changelog
 
+## 6.0.0
+
+- **Simpler commands — the viewer is the default**: `veriview design.sv` writes `design.html` and opens it in the browser (when no `-o` is given in a terminal). The output kind follows `-o` (`.html` viewer / `.svg` schematic); `--svg` for an SVG without naming the file. **Breaking:** previously the default was an SVG.
+- **Folders as input**: `veriview rtl/` uses the folder's `.f` file list, or all `.v`/`.sv` files in it.
+- `--open` / `--no-open`; quick-start examples at the top of `--help`.
+
 ## 5.8.0
 
 - **State machine diagrams**: FSMs are extracted with Yosys (`fsm_detect` / `fsm_extract`) and drawn in the viewer (**◇ FSM**): state names from `enum`s or `localparam`s, encodings, Moore outputs, reset state, transitions labelled with the original source expressions (merged and simplified with Quine–McCluskey). Draggable layout; in simulation mode the current state and the last transition are highlighted; links to the code panel; SVG download.

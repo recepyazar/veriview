@@ -170,3 +170,29 @@ def test_tagged_design_simulates(tmp_path):
         ops += [["set", "a", a], ["set", "b", b], ["get", "y"], ["get", "c"]]
         exp += [1 - (a & b), a & b]
     assert simulate(tmp_path, data, "opt", ops) == exp
+
+
+@needs_tools
+def test_module_opened_in_editor_behaves_the_same(tmp_path):
+    """counter.sv -> editor drawing (to_editor.py) -> Verilog (editor_core.js) -> simulation: still counts."""
+    from conftest import EX
+
+    from veriview.filelist import collect_sources
+    from veriview.synth import Synthesizer
+    from veriview.to_editor import netlist_to_design
+    out = tmp_path / "e.json"
+    Synthesizer(collect_sources([str(EX / "counter.sv")], [], []), tmp_path).synthesize("counter", out, stage="editor")
+    d = netlist_to_design(json.loads(out.read_text()))
+    assert {n["name"] for n in d["nodes"] if n["type"] == "out"} == {"count_0", "count_1", "count_2", "count_3"}
+    assert len({(n["x"], n["y"]) for n in d["nodes"]}) == len(d["nodes"])       # no two nodes on top of each other
+    res = to_verilog(tmp_path, d, d["module"])
+    assert res["warn"] == []
+    src = tmp_path / "counter_gates.v"
+    src.write_text(res["text"])
+    data = build(tmp_path, src, stage="opt")
+    ops = [["set", "rst_n", 1]]
+    exp = []
+    for i in range(1, 19):
+        ops += [["clock", "clk", 1]] + [["get", f"count_{b}"] for b in range(4)]
+        exp += [(i % 16) >> b & 1 for b in range(4)]
+    assert simulate(tmp_path, data, "opt", ops) == exp

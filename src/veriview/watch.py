@@ -44,7 +44,10 @@ LIVE_RELOAD_JS = """
     try {
       const s = await (await fetch("__STATUS_PATH__", { cache: "no-store" })).json();
       if (version === null) version = s.version;
-      else if (s.version !== version) { location.reload(); return; }
+      else if (s.version !== version) {
+        // the viewer's code panel holds unsaved edits: reload once they are saved or dropped
+        if (!window.__veriviewHold) { location.reload(); return; }
+      }
       bar.style.display = s.error ? "block" : "none";
       bar.textContent = s.error ? "VeriView: rebuild failed (showing the last good version)\\n\\n" + s.error : "";
     } catch (e) { /* server stopped */ }

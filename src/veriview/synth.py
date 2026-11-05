@@ -66,6 +66,9 @@ def stage_commands(stage: str, flatten: bool) -> list[str]:
     if stage == "fsm":  # internal: FSM extraction for diagrams (see fsm.py)
         from .fsm import FSM_STAGE_COMMANDS
         return list(FSM_STAGE_COMMANDS)
+    if stage == "editor":  # internal: gate-editor primitives ("open in editor", see to_editor.py)
+        from .to_editor import editor_commands
+        return editor_commands()
     cmds = ["proc"]
     if flatten:
         cmds.append("flatten")

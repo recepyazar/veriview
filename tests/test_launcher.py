@@ -98,3 +98,71 @@ def test_editor_page_served(proj):
     html = editor_page().decode()
     assert "function toVerilog" in html and '"launcher": true' in html
     assert html.count("</script>") == 2
+
+
+def _wait_attempt(la, bid, attempt, timeout=60):
+    import time
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        st = la.status(bid)
+        if st["attempt"] > attempt:
+            return st
+        time.sleep(0.1)
+    raise AssertionError("no rebuild")
+
+
+@needs_tools
+def test_edit_source_from_viewer(proj):
+    la = Launcher(proj)
+    b = la.build({"files": ["counter.sv"], "stages": ["opt"]})
+    assert b["error"] == "" and la.status(b["id"])["attempt"] == 1
+    html = la.builds[b["id"]].html.read_text()
+    src = (proj / "counter.sv").read_text()
+    r = la.save_source({"id": b["id"], "file": str(proj / "counter.sv"), "text": src.replace("count + 1", "count + 2")})
+    assert r == {"path": "counter.sv", "attempt": 1}
+    st = _wait_attempt(la, b["id"], 1)
+    assert st["error"] == "" and st["version"] == 2
+    assert "count + 2" in (proj / "counter.sv").read_text() and la.builds[b["id"]].html.read_text() != html
+    # a syntax error: the build fails, the last good viewer stays
+    la.save_source({"id": b["id"], "file": "counter.sv", "text": src.replace("endmodule", "")})
+    st = _wait_attempt(la, b["id"], 2)
+    assert st["error"] and st["version"] == 2
+    # only the design's own sources can be written
+    (proj / "other.v").write_text("module other; endmodule\n")
+    for bad in ("other.v", "../x.v", "/etc/passwd"):
+        with pytest.raises(VeriViewError, match="not a source file"):
+            la.save_source({"id": b["id"], "file": bad, "text": "x"})
+    la.shutdown()
+
+
+@needs_tools
+def test_open_module_in_editor(proj):
+    la = Launcher(proj)
+    b = la.build({"files": ["rca/rca.f"], "stages": ["opt"]})
+    d = la.to_editor({"id": b["id"], "module": "fa"})
+    assert d["module"] == "fa" and "error" not in d
+    types = {n["type"] for n in d["nodes"]}
+    assert {"in", "out"} <= types and types & {"xor", "xnor"}
+    whole = la.to_editor({"id": b["id"], "module": ""})          # the build's top, flattened
+    assert whole["module"] == "rca" and any("split" in w for w in whole["warn"])
+    assert "error" in la.to_editor({"id": b["id"], "module": "nosuch"})
+    la.shutdown()
+
+
+def test_viewer_gets_server_info(proj):
+    server, la, url = serve(proj, 18820)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    try:
+        from veriview.launcher import Build
+        b = Build("abc", [], live=False)
+        b.html.write_text("<html><head></head><body>v</body></html>")
+        la.builds["abc"] = b
+        code, body = _req(url + "view/abc")
+        assert code == 200 and 'window.VERIVIEW_SERVER = {"build": "abc"' in body
+        code, body = _req(url + "api/source", {"id": "abc", "file": "x.v", "text": ""}, {"X-VeriView": "1"})
+        assert code == 400 and "not a source file" in body
+    finally:
+        server.shutdown()
+        server.server_close()
+        la.shutdown()

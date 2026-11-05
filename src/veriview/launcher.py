@@ -40,6 +40,7 @@ class Build:
         self.dir = Path(tempfile.mkdtemp(prefix="veriview-ui."))
         self.html = self.dir / "viewer.html"
         self.version = 0
+        self.attempt = 0          # rebuilds tried (successful or not)
         self.error = ""
         self.log: list[str] = []
         self.sources: Any = None
@@ -162,6 +163,7 @@ class Launcher:
         except Exception as e:  # never let a watcher thread die on an unexpected error
             b.error = f"{type(e).__name__}: {e}"
         b.log = lines[-200:]
+        b.attempt += 1
 
     def _watch(self, b: Build) -> None:
         files = watched_files(b.sources, b.inputs)
@@ -179,7 +181,8 @@ class Launcher:
         b = self.builds.get(bid)
         if not b:
             raise VeriViewError("Unknown build")
-        return {"version": b.version, "error": b.error, "log": b.log, "live": b.live, "name": b.name}
+        return {"version": b.version, "attempt": b.attempt, "error": b.error, "log": b.log, "live": b.live,
+                "name": b.name}
 
     def report(self, req: dict[str, Any]) -> dict[str, Any]:
         from .cli import prepare, report_text
@@ -209,6 +212,58 @@ class Launcher:
         p.write_text(str(req.get("text", "")), encoding="utf-8")
         log.info(f"Gate editor saved {p}")
         return {"path": p.relative_to(self.root).as_posix()}
+
+    def save_source(self, req: dict[str, Any]) -> dict[str, Any]:
+        """Write a source file edited in the viewer's code panel, then rebuild that viewer.
+
+        Only files that are part of the build (and below the start folder) can be written.
+        A live build notices the change by itself; others are rebuilt in the background.
+        The page polls /api/status until `attempt` grows.
+        """
+        b = self.builds.get(str(req.get("id")))
+        if not b:
+            raise VeriViewError("Unknown build")
+        name = str(req.get("file", ""))
+        files = list(b.sources.files) if b.sources is not None else []
+        hits = [f for f in files if f.as_posix() == name or f.resolve() == Path(name).resolve()
+                or f.as_posix().endswith("/" + name.lstrip("./"))]
+        if len(hits) != 1:
+            raise VeriViewError(f"{name} is not a source file of this design (generated files cannot be edited)")
+        p = self.safe(str(hits[0].resolve()))
+        attempt = b.attempt
+        p.write_text(str(req.get("text", "")), encoding="utf-8")
+        log.info(f"Viewer saved {p}")
+        if not b.live:
+            threading.Thread(target=self._rebuild, args=(b,), daemon=True).start()
+        return {"path": p.relative_to(self.root).as_posix(), "attempt": attempt}
+
+    def to_editor(self, req: dict[str, Any]) -> dict[str, Any]:
+        """A module of a build as a gate-editor drawing (flattened, gate level)."""
+        from .cli import prepare
+        from .filelist import collect_sources
+        from .synth import Synthesizer
+        from .to_editor import netlist_to_design
+        b = self.builds.get(str(req.get("id")))
+        if not b:
+            raise VeriViewError("Unknown build")
+        module = str(req.get("module") or "")
+        if module.startswith("$paramod"):   # parameterized instance: the module with its default parameters
+            module = module.split("\\")[1] if "\\" in module else module
+        module = module.lstrip("\\") or None
+        lines: list[str] = []
+
+        def go() -> dict[str, Any]:
+            args, inputs, _ = prepare(b.argv)
+            sources = collect_sources(inputs, args.incdirs, args.defines)
+            with tempfile.TemporaryDirectory(prefix="veriview.") as tmp:
+                out = Path(tmp) / "editor.json"
+                Synthesizer(sources, Path(tmp), frontend=args.frontend).synthesize(module or args.top, out,
+                                                                                   stage="editor")
+                return netlist_to_design(json.loads(out.read_text()))
+        try:
+            return self.run_captured(go, lines)
+        except VeriViewError as e:
+            return {"error": str(e), "log": lines}
 
     def shutdown(self) -> None:
         for b in self.builds.values():
@@ -262,6 +317,8 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
                 if "download=1" in query:
                     return self._send(200, "text/html; charset=utf-8", html.encode("utf-8"),
                                       {"Content-Disposition": f'attachment; filename="{b.name}.html"'})
+                info = json.dumps({"build": b.id, "editor": "/editor", "live": b.live})
+                html = html.replace("<head>", f"<head><script>window.VERIVIEW_SERVER = {info};</script>", 1)
                 if b.live:
                     js = LIVE_RELOAD_JS.replace("/__veriview/status", f"/api/status/{b.id}")
                     html = html.replace("</body>", js + "</body>", 1)
@@ -293,6 +350,10 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
                     return self._json(launcher.report(req))
                 if route == "/api/save":
                     return self._json(launcher.save(req))
+                if route == "/api/source":
+                    return self._json(launcher.save_source(req))
+                if route == "/api/to_editor":
+                    return self._json(launcher.to_editor(req))
                 return self._json({"error": "unknown API"}, 404)
             except VeriViewError as e:
                 return self._json({"error": str(e)}, 400)

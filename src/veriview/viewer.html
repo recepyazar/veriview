@@ -157,6 +157,13 @@
   #code .code-head select { max-width: 50%; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
   #code .note, #code-msg { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #code-msg { flex: 1; text-align: right; }
+  #code-area { flex: 1; min-height: 0; resize: none; border: 0; outline: none; margin: 0; padding: 4px 12px;
+    font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--panel); color: var(--text);
+    tab-size: 2; white-space: pre; overflow: auto; }
+  #code-area[hidden], #code-body[hidden] { display: none; }
+  #code-err { max-height: 30%; overflow: auto; margin: 0; padding: 8px 10px; background: #b42318; color: #fff;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
+  #code .code-head .btn { padding: 2px 8px; font-size: 12px; }
   #code-body { flex: 1; overflow: auto; font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 4px 0; }
   #code-body .ln { display: flex; white-space: pre; cursor: pointer; padding-right: 12px; }
   #code-body .ln:hover { background: var(--accent-soft); }
@@ -234,6 +241,7 @@
   <div class="tools">
     <button class="btn" id="btn-up" title="Go up one level (Backspace)">↑ Up</button>
     <button class="btn" id="btn-code" aria-pressed="false" title="Show the source code: click a cell to see its line, click a line to see its cells">&lt;/&gt; Code</button>
+    <button class="btn" id="btn-editor" title="Open this module in the gate editor (as gates and flip-flops)">✎ Editor</button>
     <button class="btn" id="btn-fit" title="Fit to window (F)">Fit</button>
     <button class="btn" id="btn-svg" title="Download this schematic as SVG">SVG</button>
     <button class="btn" id="btn-lang" title="Language / Dil">TR</button>
@@ -323,8 +331,13 @@
     <select id="code-file" aria-label="Source file"></select>
     <span id="code-note" class="note"></span>
     <span id="code-msg"></span>
+    <button class="btn" id="code-edit" title="Edit this file: saving rebuilds the schematic">✎ Edit</button>
+    <button class="btn" id="code-save" hidden title="Save and rebuild (Ctrl+S)">Save</button>
+    <button class="btn" id="code-cancel" hidden title="Stop editing (unsaved changes are dropped)">Cancel</button>
   </div>
   <div id="code-body"></div>
+  <textarea id="code-area" hidden spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Source code"></textarea>
+  <pre id="code-err" hidden></pre>
 </section>
 <footer id="status"></footer>
 
@@ -446,6 +459,20 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     " (it may have been optimized away — try the RTL view)": " (optimize edilip silinmiş olabilir — RTL görünümünü dene)",
     "{c} cell(s), {n} net(s) · Esc to clear": "{c} hücre, {n} net · temizlemek için Esc",
     "state {s}: {n} line(s)": "durum {s}: {n} satır",
+    "✎ Edit": "✎ Düzenle", "Save": "Kaydet", "Cancel": "Vazgeç",
+    "Edit this file: saving rebuilds the schematic": "Bu dosyayı düzenle: kaydedince şema yeniden üretilir",
+    "Save and rebuild (Ctrl+S)": "Kaydet ve yeniden üret (Ctrl+S)",
+    "Stop editing (unsaved changes are dropped)": "Düzenlemeyi bırak (kaydedilmemiş değişiklikler silinir)",
+    "editing {f} · Ctrl+S saves and rebuilds": "{f} düzenleniyor · Ctrl+S kaydeder ve yeniden üretir",
+    "Drop the unsaved changes?": "Kaydedilmemiş değişiklikler silinsin mi?",
+    "Saving and rebuilding…": "Kaydediliyor ve yeniden üretiliyor…",
+    "Build failed — fix the code and save again": "Derleme başarısız — kodu düzeltip tekrar kaydet",
+    "saved {f}": "{f} kaydedildi",
+    "Editing needs the launcher: run `veriview --ui` in the design folder and open the design from there.":
+      "Düzenleme için başlatıcı gerekli: tasarım klasöründe `veriview --ui` çalıştırıp tasarımı oradan aç.",
+    "✎ Editor": "✎ Editör",
+    "Open this module in the gate editor (as gates and flip-flops)": "Bu modülü kapı editöründe aç (kapılar ve flip-floplar olarak)",
+    "Open this module in the gate editor (needs the launcher: veriview --ui)": "Bu modülü kapı editöründe aç (başlatıcı gerekli: veriview --ui)",
     // FSM
     "Also in sub-modules: ": "Alt modüllerde de: ", "State machines in sub-modules: ": "Alt modüllerdeki durum makineleri: ",
     "No state machine in this module.": "Bu modülde durum makinesi yok.",
@@ -1336,6 +1363,96 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   for (const f of Object.keys(SOURCES)) {
     const o = document.createElement("option"); o.value = f; o.textContent = f.split("/").pop(); o.title = f; $("code-file").append(o);
   }
+  // ---- editing the sources and opening the gate editor (only when served by the launcher) ----
+  const SERVER = window.VERIVIEW_SERVER || null;
+  const needServer = () => alert(_t("Editing needs the launcher: run `veriview --ui` in the design folder and open the design from there."));
+  const apiPost = async (path, body) => {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-VeriView": "1" }, body: JSON.stringify(body) });
+    return r.json();
+  };
+  const editing = { on: false, file: null, dirty: false };
+  function setEditing(on) {
+    editing.on = on;
+    if (!on) { editing.dirty = false; $("code-err").hidden = true; }
+    window.__veriviewHold = on && editing.dirty;
+    $("code-body").hidden = on; $("code-area").hidden = !on;
+    $("code-save").hidden = $("code-cancel").hidden = !on; $("code-edit").hidden = on;
+    $("code-file").disabled = on;
+  }
+  $("code-edit").onclick = () => {
+    if (!SERVER) return needServer();
+    const f = code.file || Object.keys(SOURCES)[0];
+    if (!f) return;
+    renderCode(f);
+    editing.file = f;
+    const ta = $("code-area"), top = $("code-body").scrollTop;
+    ta.value = SOURCES[f].text;
+    setEditing(true);
+    ta.scrollTop = top;
+    ta.focus({ preventScroll: true });
+    $("code-msg").textContent = _t("editing {f} · Ctrl+S saves and rebuilds", { f: f.split("/").pop() });
+  };
+  $("code-cancel").onclick = () => {
+    if (editing.dirty && !confirm(_t("Drop the unsaved changes?"))) return;
+    setEditing(false);
+    $("code-msg").textContent = "";
+  };
+  $("code-area").addEventListener("input", () => { editing.dirty = true; window.__veriviewHold = true; });
+  $("code-area").addEventListener("keydown", (e) => {
+    e.stopPropagation();   // the viewer's shortcuts (F, Backspace, Esc) must not fire while typing
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveCode(); }
+    else if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); e.target.setRangeText("  ", e.target.selectionStart, e.target.selectionEnd, "end"); editing.dirty = true; }
+  });
+  $("code-save").onclick = () => saveCode();
+  function gotoLine(n) {
+    const ta = $("code-area"), lines = ta.value.split("\n");
+    let pos = 0;
+    for (let i = 0; i < n - 1 && i < lines.length; i++) pos += lines[i].length + 1;
+    ta.focus({ preventScroll: true });
+    ta.setSelectionRange(pos, pos + (lines[n - 1] || "").length);
+    ta.scrollTop = Math.max(0, (n - 6) * (parseFloat(getComputedStyle(ta).lineHeight) || 19));
+  }
+  function showBuildError(msg) {
+    const box = $("code-err");
+    box.hidden = false; box.textContent = msg;
+    const base = editing.file.split("/").pop().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const m = new RegExp(base + ":(\\d+)").exec(msg);
+    if (m) gotoLine(+m[1]);
+    $("code-msg").textContent = _t("Build failed — fix the code and save again");
+  }
+  async function saveCode() {
+    if (!editing.on) return;
+    $("code-err").hidden = true;
+    $("code-msg").textContent = _t("Saving and rebuilding…");
+    $("code-save").disabled = true;
+    try {
+      const r = await apiPost("/api/source", { id: SERVER.build, file: editing.file, text: $("code-area").value });
+      if (r.error) return showBuildError(r.error);
+      editing.dirty = false;
+      for (let i = 0; i < 1200; i++) {
+        await new Promise((ok) => setTimeout(ok, 400));
+        let st;
+        try { st = await (await fetch(`/api/status/${SERVER.build}`, { cache: "no-store" })).json(); } catch (e) { continue; }
+        if (st.attempt <= r.attempt) continue;
+        if (st.error) { window.__veriviewHold = true; return showBuildError(st.error); }
+        try { sessionStorage.setItem("veriview-code-reopen", JSON.stringify({ file: editing.file, top: $("code-area").scrollTop })); } catch (e) {}
+        window.__veriviewHold = false;
+        location.reload();
+        return;
+      }
+    } catch (e) {
+      showBuildError(String(e));
+    } finally {
+      $("code-save").disabled = false;
+    }
+  }
+  $("btn-editor").onclick = () => {
+    if (!SERVER) return needServer();
+    const m = moduleOf(state.path), label = (mods()[m] || {}).label || m;
+    window.open(`${SERVER.editor}?build=${encodeURIComponent(SERVER.build)}&module=${encodeURIComponent(label)}`, "_blank");
+  };
+  window.addEventListener("beforeunload", (e) => { if (editing.dirty) { e.preventDefault(); e.returnValue = ""; } });
+
   // drag the left edge of the panel to resize it
   $("code-grip").addEventListener("pointerdown", (e) => {
     e.preventDefault();
@@ -1886,6 +2003,17 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   window.addEventListener("hashchange", () => { readHash(); show(); });
   readHash();
   show();
+  if (!SERVER) { $("btn-editor").title = _t("Open this module in the gate editor (needs the launcher: veriview --ui)"); }
+  // back from a save in the code panel: show the edited file where it was
+  try {
+    const back = JSON.parse(sessionStorage.getItem("veriview-code-reopen") || "null");
+    sessionStorage.removeItem("veriview-code-reopen");
+    if (back && SOURCES[back.file] && state.code) {
+      code.rendered = null; renderCode(back.file);
+      $("code-body").scrollTop = back.top;
+      $("code-msg").textContent = _t("saved {f}", { f: back.file.split("/").pop() });
+    }
+  } catch (e) {}
 })();
 </script>
 </body>

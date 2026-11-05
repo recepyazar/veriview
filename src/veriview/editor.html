@@ -159,6 +159,9 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       "<b>Taşı:</b> sürükle · <b>Bağla:</b> pinden pine sürükle · <b>Kaydır:</b> Boşluk+sürükle ya da orta tuş · <b>Yakınlaştır:</b> tekerlek<br>" +
       "<b>Kısayollar:</b> Ctrl+A tümü · Ctrl+C/X/V kopyala/kes/yapıştır · Ctrl+D çoğalt · Ctrl+Z/Y geri al/yinele · Delete sil · Esc seçimi bırak<br>" +
       "<b>Çift tık:</b> kapıya, tele, porta ya da etikete isim ver · <b>Tel:</b> seçince ortadaki tutamağı sürükle · <b>Etiket:</b> aynı isimli etiketler bağlıdır",
+    "Converting {m} to gates…": "{m} kapılara dönüştürülüyor…",
+    "{m}: {n} gates and flip-flops (Ctrl+Z brings back the previous drawing)": "{m}: {n} kapı ve flip-flop (önceki çizim için Ctrl+Z)",
+    "multi-bit ports split into one port per bit: ": "çok bitli portlar bit bit ayrıldı: ",
     "Name for this port": "Bu port için isim", "Copied.": "Kopyalandı.", "Saved {f}; opening the viewer…": "{f} kaydedildi; görüntüleyici açılıyor…",
     "Saving and opening needs the launcher (run `veriview` or `veriview --editor`). Use Download Verilog instead.":
       "Kaydedip açmak için launcher gerekli (`veriview` ya da `veriview --editor`). Bunun yerine Verilog'u indir.",
@@ -746,16 +749,36 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       { id: 7, from: { node: 3, pin: "Y" }, to: { node: 4, pin: "A" } }], seq: 8 };
   }
   last = snapshot(); updateUndo();
-  // start with the drawing filling the view (not too zoomed in for tiny designs)
-  const r = $("canvas").getBoundingClientRect(), asp = r.width && r.height ? r.height / r.width : 0.66;
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const nd of D.nodes) { const z = sizeOf(nd); x0 = Math.min(x0, nd.x); y0 = Math.min(y0, nd.y); x1 = Math.max(x1, nd.x + z.w); y1 = Math.max(y1, nd.y + z.h); }
-  if (isFinite(x0)) {
-    const w = Math.max(560, (x1 - x0) + 160, ((y1 - y0) + 160) / asp);
-    vb = { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - (w * asp) / 2, w, h: w * asp };
-  } else vb = { x: 0, y: 0, w: 900, h: 900 * asp };
-  setVB();
+  // the drawing fills the view (not too zoomed in for tiny designs)
+  function fitAll() {
+    const r = $("canvas").getBoundingClientRect(), asp = r.width && r.height ? r.height / r.width : 0.66;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const nd of D.nodes) { const z = sizeOf(nd); x0 = Math.min(x0, nd.x - 30); y0 = Math.min(y0, nd.y - 20); x1 = Math.max(x1, nd.x + z.w); y1 = Math.max(y1, nd.y + z.h); }
+    if (isFinite(x0)) {
+      const w = Math.min(Math.max(560, (x1 - x0) + 160, ((y1 - y0) + 160) / asp), 6000);
+      vb = { x: (x0 + x1) / 2 - w / 2, y: (y0 + y1) / 2 - (w * asp) / 2, w, h: w * asp };
+    } else vb = { x: 0, y: 0, w: 900, h: 900 * asp };
+    setVB();
+  }
+  fitAll();
   draw();
+  // opened from the viewer ("✎ Editor"): /editor?build=<id>&module=<name> -> the module as gates
+  const qs = new URLSearchParams(location.search);
+  if (qs.get("build") && EDITOR && EDITOR.launcher) {
+    const m = qs.get("module") || "";
+    history.replaceState(null, "", location.pathname);
+    $("status").textContent = _t("Converting {m} to gates…", { m });
+    api("/api/to_editor", { id: qs.get("build"), module: m }).then((r) => {
+      if (r.error) { generate(); alert(r.error); return; }
+      D = { nodes: r.nodes, wires: r.wires, seq: r.seq };
+      $("modname").value = r.module;
+      clearSel(); commit(); fitAll(); draw();
+      const gates = r.nodes.filter((n) => !PORTS.includes(n.type)).length;
+      const notes = (r.warn || []).map((w) => w.startsWith("multi-bit ports split") ? _t("multi-bit ports split into one port per bit: ") + w.split(": ").pop() : w);
+      $("status").textContent = [_t("{m}: {n} gates and flip-flops (Ctrl+Z brings back the previous drawing)", { m: r.module, n: gates }), ...notes].join(" · ");
+      clearTimeout(flash.t); flash.t = setTimeout(generate, 6000);
+    }).catch((e) => { generate(); alert(String(e)); });
+  }
 })();
 </script>
 </body>

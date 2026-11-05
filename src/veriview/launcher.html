@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VeriView</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --border: #dde1e6; --text: #1d232b; --muted: #5f6b7a;
+    --accent: #2563eb; --on-accent: #ffffff; --accent-soft: #e6eefc; --ok: #15a34a; --bad: #d92d20;
+  }
+  :root[data-theme="dark"] {
+    --bg: #111418; --panel: #181c21; --border: #2a3038; --text: #e6e9ed; --muted: #95a0ad;
+    --accent: #6ea0ff; --on-accent: #0b1220; --accent-soft: #1c2a42; --ok: #4ade80; --bad: #f97066;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #111418; --panel: #181c21; --border: #2a3038; --text: #e6e9ed; --muted: #95a0ad;
+      --accent: #6ea0ff; --on-accent: #0b1220; --accent-soft: #1c2a42; --ok: #4ade80; --bad: #f97066;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  header .brand { font-weight: 700; font-size: 16px; }
+  header .brand small { color: var(--muted); font-weight: 400; margin-left: 4px; font-size: 13px; }
+  header .root { flex: 1; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn { border: 1px solid var(--border); background: var(--panel); border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
+  .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .btn.primary:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.08); }
+  .btn.small { padding: 1px 8px; font-size: 12px; }
+  main { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.2fr); gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .card h2 { margin: 0 0 10px; font-size: 15px; }
+  .muted { color: var(--muted); }
+  .crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; margin-bottom: 8px; font-size: 13px; }
+  .crumbs a { color: var(--accent); cursor: pointer; text-decoration: none; padding: 1px 4px; border-radius: 4px; }
+  .crumbs a:hover { background: var(--accent-soft); }
+  .crumbs .sep { color: var(--muted); }
+  ul.list { list-style: none; margin: 0; padding: 0; max-height: 52vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+  ul.list li { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-bottom: 1px solid var(--border); }
+  ul.list li:last-child { border-bottom: 0; }
+  ul.list li.dir { cursor: pointer; }
+  ul.list li.dir:hover, ul.list li label:hover { background: var(--accent-soft); }
+  ul.list li label { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; min-width: 0; }
+  ul.list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { font-size: 11px; padding: 0 6px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .row > label:first-child { min-width: 110px; color: var(--muted); }
+  select, input[type="text"] { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+  input[type="text"] { min-width: 0; flex: 1; }
+  .checks label { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
+  details { margin: 8px 0; }
+  details summary { cursor: pointer; color: var(--muted); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+  .sel-info { margin-top: 8px; font-size: 13px; }
+  pre.out { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 40vh; overflow: auto;
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; margin: 10px 0 0; }
+  pre.out:empty { display: none; }
+  .err { color: var(--bad); }
+  .ok { color: var(--ok); }
+  table.recent { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.recent td { padding: 4px 6px; border-top: 1px solid var(--border); }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">VeriView<small id="version"></small></div>
+  <div class="root" id="root"></div>
+  <button class="btn" id="btn-lang" title="Language / Dil">TR</button>
+  <button class="btn" id="btn-theme" title="Toggle light/dark theme">◐</button>
+</header>
+<main>
+  <section class="card">
+    <h2 data-t>Files</h2>
+    <div class="row" style="margin:0 0 8px"><div class="crumbs" id="crumbs" style="flex:1;margin:0"></div>
+      <button class="btn small" id="use-dir" title="Select this folder's .f file list, or all its source files" data-t>Use this folder</button></div>
+    <ul class="list" id="files"></ul>
+    <div class="sel-info"><span id="sel-info"></span> <button class="btn small" id="sel-clear" data-t>Clear selection</button></div>
+  </section>
+  <section class="card">
+    <h2 data-t>Settings</h2>
+    <div class="row"><label for="top" data-t>Top module</label><select id="top"></select><span id="top-busy"></span></div>
+    <div class="row checks"><label data-t>Views</label>
+      <label><input type="checkbox" class="stage" value="elab" checked> RTL</label>
+      <label><input type="checkbox" class="stage" value="opt" checked> <span data-t>Optimized</span></label>
+      <label><input type="checkbox" class="stage" value="gate" checked> <span data-t>Gates</span></label>
+    </div>
+    <div class="row"><label for="lang" data-t>Viewer language</label>
+      <select id="lang"><option value="auto" data-t>Browser language</option><option value="en">English</option><option value="tr">Türkçe</option></select>
+    </div>
+    <div class="row checks"><label data-t>Options</label>
+      <label><input type="checkbox" id="flatten"> <span data-t>Start flattened</span></label>
+      <label><input type="checkbox" id="live" checked> <span data-t>Live: rebuild when a file changes</span></label>
+    </div>
+    <details>
+      <summary data-t>Advanced</summary>
+      <div class="row"><label for="incdirs" data-t>Include folders</label><input type="text" id="incdirs" placeholder="rtl/include, ip/common"></div>
+      <div class="row"><label for="defines" data-t>Defines</label><input type="text" id="defines" placeholder="SYNTH, WIDTH=8"></div>
+      <div class="row"><label for="frontend" data-t>Frontend</label>
+        <select id="frontend"><option value="auto">auto</option><option value="yosys">yosys</option><option value="sv2v">sv2v</option><option value="slang">slang</option></select>
+      </div>
+    </details>
+    <div class="actions">
+      <button class="btn primary" id="go" data-t>▶ Open viewer</button>
+      <span class="muted">|</span>
+      <input type="text" id="period" value="2ns" style="max-width:80px" title="Clock period, e.g. 2ns, 500ps, 250MHz">
+      <button class="btn" id="go-timing" data-t>⏱ Timing report</button>
+      <button class="btn" id="go-fsm" data-t>◇ List FSMs</button>
+    </div>
+    <pre class="out" id="out"></pre>
+    <div id="recent-box" hidden>
+      <h2 style="margin-top:14px" data-t>Viewers</h2>
+      <table class="recent" id="recent"></table>
+    </div>
+  </section>
+</main>
+<script>
+const DATA = /*__LAUNCHER_DATA__*/null;
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const TR = {
+    "Files": "Dosyalar", "Clear selection": "Seçimi temizle", "Settings": "Ayarlar", "Top module": "Top modül",
+    "Views": "Görünümler", "Optimized": "Optimize", "Gates": "Kapılar", "Viewer language": "Görüntüleyici dili",
+    "Browser language": "Tarayıcı dili", "Options": "Seçenekler", "Start flattened": "Düzleştirilmiş başlat",
+    "Live: rebuild when a file changes": "Canlı: dosya değişince yeniden oluştur", "Advanced": "Gelişmiş",
+    "Include folders": "Include klasörleri", "Defines": "Define'lar", "Frontend": "Frontend",
+    "▶ Open viewer": "▶ Görüntüleyiciyi aç", "⏱ Timing report": "⏱ Zamanlama raporu", "◇ List FSMs": "◇ FSM'leri listele",
+    "Viewers": "Görüntüleyiciler", "Toggle light/dark theme": "Açık / koyu tema",
+    "Clock period, e.g. 2ns, 500ps, 250MHz": "Saat periyodu, ör. 2ns, 500ps, 250MHz",
+    "Auto": "Otomatik", "Auto ({top})": "Otomatik ({top})", "{n} file(s) selected": "{n} dosya seçili",
+    "Nothing selected — tick files or a .f file list": "Hiçbir şey seçilmedi — dosyaları ya da bir .f dosya listesini işaretle",
+    "file list": "dosya listesi", "header": "header", "{n} HDL files": "{n} HDL dosyası", "No HDL files in this folder.": "Bu klasörde HDL dosyası yok.",
+    "Building…": "Oluşturuluyor…", "Looking for top modules…": "Top modüller aranıyor…", "Done.": "Tamam.",
+    "Open": "Aç", "Rebuild": "Yeniden oluştur", "Download": "İndir", "live": "canlı", "built {n}×": "{n}× oluşturuldu",
+    "The browser blocked the new tab — click Open below.": "Tarayıcı yeni sekmeyi engelledi — aşağıdaki Aç'a tıkla.",
+    "Select files first.": "Önce dosya seç.", "Use this folder": "Bu klasörü kullan",
+    "Select this folder's .f file list, or all its source files": "Bu klasörün .f dosya listesini, yoksa tüm kaynak dosyalarını seç",
+  };
+  let LANG = "en";
+  try {
+    const st = localStorage.getItem("veriview-lang");
+    LANG = (st || navigator.language || "").toLowerCase().startsWith("tr") ? "tr" : "en";
+  } catch (e) {}
+  const _t = (s, v) => { let o = LANG === "tr" && TR[s] !== undefined ? TR[s] : s; if (v) for (const [k, x] of Object.entries(v)) o = o.split(`{${k}}`).join(String(x)); return o; };
+  document.documentElement.lang = LANG;
+  for (const el of document.querySelectorAll("[data-t]")) el.textContent = _t(el.textContent.trim());
+  for (const el of document.querySelectorAll("[title]")) el.title = _t(el.title);
+  $("version").textContent = "v" + DATA.version;
+  $("root").textContent = DATA.root;
+  $("btn-lang").textContent = LANG === "tr" ? "EN" : "TR";
+  $("btn-lang").onclick = () => { try { localStorage.setItem("veriview-lang", LANG === "tr" ? "en" : "tr"); } catch (e) {} location.reload(); };
+  const root = document.documentElement;
+  try { const th = localStorage.getItem("veriview-theme"); if (th) root.dataset.theme = th; } catch (e) {}
+  $("btn-theme").onclick = () => {
+    const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = dark ? "light" : "dark";
+    try { localStorage.setItem("veriview-theme", root.dataset.theme); } catch (e) {}
+  };
+
+  const api = async (path, body) => {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-VeriView": "1" }, body: JSON.stringify(body || {}) });
+    const j = await r.json();
+    if (!r.ok && !j.error) j.error = r.statusText;
+    return j;
+  };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // ---- settings (remembered) ---------------------------------------------------------
+  const KEY = "veriview-launcher1:" + DATA.root;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
+  const sel = new Set(saved.selected || []);
+  let curDir = saved.dir || "";
+  if (saved.lang) $("lang").value = saved.lang;
+  if (saved.stages) for (const c of document.querySelectorAll(".stage")) c.checked = saved.stages.includes(c.value);
+  for (const k of ["flatten", "live"]) if (k in saved) $(k).checked = saved[k];
+  for (const k of ["incdirs", "defines", "frontend", "period"]) if (saved[k]) $(k).value = saved[k];
+  const save = () => {
+    try {
+      localStorage.setItem(KEY, JSON.stringify({ selected: [...sel], dir: curDir, top: $("top").value, lang: $("lang").value,
+        stages: [...document.querySelectorAll(".stage")].filter((c) => c.checked).map((c) => c.value),
+        flatten: $("flatten").checked, live: $("live").checked, incdirs: $("incdirs").value,
+        defines: $("defines").value, frontend: $("frontend").value, period: $("period").value }));
+    } catch (e) {}
+  };
+  for (const el of document.querySelectorAll("select, input")) el.addEventListener("change", save);
+
+  // ---- folder browser ------------------------------------------------------------------
+  let firstLoad = !saved.selected;
+  async function loadDir(dir) {
+    const r = await api("/api/list", { dir });
+    if (r.error) { if (dir) return loadDir(""); out(r.error, true); return; }
+    curDir = r.dir; save();
+    const cr = $("crumbs"); cr.textContent = "";
+    const parts = r.dir ? r.dir.split("/") : [];
+    const mk = (label, target) => { const a = document.createElement("a"); a.textContent = label; a.onclick = () => loadDir(target); cr.append(a); };
+    mk(DATA.root.split(/[\\/]/).pop() || "/", "");
+    parts.forEach((p, i) => { const s = document.createElement("span"); s.className = "sep"; s.textContent = "/"; cr.append(s); mk(p, parts.slice(0, i + 1).join("/")); });
+    const ul = $("files"); ul.textContent = "";
+    if (parts.length) {
+      const li = document.createElement("li"); li.className = "dir";
+      li.innerHTML = `<span>⬑</span><span class="name">..</span>`;
+      li.onclick = () => loadDir(parts.slice(0, -1).join("/")); ul.append(li);
+    }
+    for (const d of r.dirs) {
+      const li = document.createElement("li"); li.className = "dir";
+      li.innerHTML = `<span>📁</span><span class="name">${esc(d.name)}</span><span class="tag">${esc(_t("{n} HDL files", { n: d.count }))}</span>`;
+      li.onclick = () => loadDir(d.path); ul.append(li);
+    }
+    const useFolder = () => {
+      // a sensible selection: the folder's only file list, otherwise every source file
+      const lists = r.files.filter((f) => f.kind === "list");
+      sel.clear();
+      for (const f of (lists.length === 1 ? lists : r.files.filter((f) => f.kind === "source"))) sel.add(f.path);
+    };
+    $("use-dir").disabled = !r.files.length;
+    $("use-dir").onclick = () => { useFolder(); loadDir(curDir); };
+    if (firstLoad && r.files.length) { useFolder(); firstLoad = false; }
+    for (const f of r.files) {
+      const li = document.createElement("li");
+      const lab = document.createElement("label");
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = sel.has(f.path);
+      cb.onchange = () => { if (cb.checked) sel.add(f.path); else sel.delete(f.path); selChanged(); };
+      const nm = document.createElement("span"); nm.className = "name"; nm.textContent = f.name;
+      lab.append(cb, nm);
+      if (f.kind !== "source") { const tg = document.createElement("span"); tg.className = "tag"; tg.textContent = _t(f.kind === "list" ? "file list" : "header"); lab.append(tg); }
+      li.append(lab); ul.append(li);
+    }
+    if (!r.dirs.length && !r.files.length) ul.innerHTML = `<li class="muted">${esc(_t("No HDL files in this folder."))}</li>`;
+    selChanged(false);
+  }
+  let candTimer = null, candSeq = 0;
+  function selChanged(refresh = true) {
+    $("sel-info").textContent = sel.size ? _t("{n} file(s) selected", { n: sel.size }) : _t("Nothing selected — tick files or a .f file list");
+    $("sel-info").className = sel.size ? "" : "err";
+    save();
+    clearTimeout(candTimer);
+    candTimer = setTimeout(loadCandidates, refresh ? 350 : 0);
+  }
+  $("sel-clear").onclick = () => { sel.clear(); loadDir(curDir); };
+
+  // ---- top module candidates -----------------------------------------------------------
+  const common = () => ({
+    files: [...sel], top: $("top").value || null, frontend: $("frontend").value,
+    incdirs: $("incdirs").value.split(/[,\s]+/).filter(Boolean), defines: $("defines").value.split(/[,\s]+/).filter(Boolean),
+  });
+  async function loadCandidates() {
+    const top = $("top");
+    const want = top.value || saved.top || "";
+    if (!sel.size) { top.innerHTML = `<option value="">${esc(_t("Auto"))}</option>`; return; }
+    const seq = ++candSeq;
+    $("top-busy").innerHTML = `<span class="spinner"></span> <span class="muted">${esc(_t("Looking for top modules…"))}</span>`;
+    const r = await api("/api/candidates", { ...common(), top: null });
+    if (seq !== candSeq) return;
+    $("top-busy").textContent = "";
+    top.textContent = "";
+    const auto = document.createElement("option"); auto.value = "";
+    auto.textContent = r.candidates && r.candidates.length === 1 ? _t("Auto ({top})", { top: r.candidates[0] }) : _t("Auto");
+    top.append(auto);
+    for (const c of r.candidates || []) { const o = document.createElement("option"); o.value = o.textContent = c; top.append(o); }
+    top.value = (r.candidates || []).includes(want) ? want : "";
+    if (r.error) out(r.error, true);
+  }
+
+  // ---- actions ---------------------------------------------------------------------------
+  function out(text, isErr = false) { const o = $("out"); o.textContent = text; o.className = "out" + (isErr ? " err" : ""); }
+  const busy = (on) => { for (const id of ["go", "go-timing", "go-fsm"]) $(id).disabled = on; if (on) out(_t("Building…")); };
+  const viewers = [];
+  function renderRecent() {
+    $("recent-box").hidden = !viewers.length;
+    const tb = $("recent"); tb.textContent = "";
+    for (const v of viewers) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><b>${esc(v.name)}</b> ${v.live ? `<span class="tag">${esc(_t("live"))}</span>` : ""} <span class="muted">${esc(_t("built {n}×", { n: v.version }))}</span>${v.error ? ` <span class="err">✕</span>` : ""}</td>`;
+      const td = document.createElement("td"); td.style.textAlign = "right";
+      const b = (label, fn) => { const x = document.createElement("button"); x.className = "btn small"; x.textContent = _t(label); x.onclick = fn; td.append(x, " "); };
+      b("Open", () => window.open(v.url, "_blank"));
+      b("Rebuild", async () => { busy(true); const r = await api("/api/rebuild", { id: v.id }); busy(false); Object.assign(v, r); showLog(r); renderRecent(); });
+      b("Download", () => { location.href = v.url + "?download=1"; });
+      tr.append(td); tb.append(tr);
+    }
+  }
+  const showLog = (r) => out([...(r.log || []), r.error ? "\n" + r.error : "", r.error ? "" : _t("Done.")].filter(Boolean).join("\n"), !!r.error);
+  $("go").onclick = async () => {
+    if (!sel.size) { out(_t("Select files first."), true); return; }
+    const tab = window.open("about:blank", "_blank");   // open synchronously: popup blockers allow it
+    busy(true);
+    const r = await api("/api/build", {
+      ...common(), lang: $("lang").value, flatten: $("flatten").checked, live: $("live").checked,
+      stages: [...document.querySelectorAll(".stage")].filter((c) => c.checked).map((c) => c.value),
+    });
+    busy(false);
+    showLog(r);
+    if (r.error && !r.version) { if (tab) tab.close(); return; }
+    viewers.unshift({ ...r });
+    renderRecent();
+    if (tab) tab.location = r.url; else out($("out").textContent + "\n" + _t("The browser blocked the new tab — click Open below."), true);
+  };
+  const report = async (kind) => {
+    if (!sel.size) { out(_t("Select files first."), true); return; }
+    busy(true);
+    const r = await api("/api/report", { ...common(), kind, period: $("period").value });
+    busy(false);
+    out(r.error ? [...(r.log || []), r.error].join("\n") : r.text, !!r.error);
+  };
+  $("go-timing").onclick = () => report("timing");
+  $("go-fsm").onclick = () => report("fsm");
+  setInterval(async () => {   // keep live viewers' build counters / errors up to date
+    let changed = false;
+    for (const v of viewers.filter((x) => x.live)) {
+      try {
+        const s = await (await fetch(`/api/status/${v.id}`, { cache: "no-store" })).json();
+        if (s.version !== v.version || s.error !== v.error) { Object.assign(v, s); changed = true; }
+      } catch (e) {}
+    }
+    if (changed) renderRecent();
+  }, 2000);
+
+  loadDir(curDir);
+})();
+</script>
+</body>
+</html>

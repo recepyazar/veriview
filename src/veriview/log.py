@@ -11,6 +11,17 @@ class VeriViewError(Exception):
 
 
 _quiet = False
+# extra receivers of log lines, e.g. the launcher collecting a build log: fn(level, message)
+_sinks: list = []
+
+
+def add_sink(fn) -> None:
+    _sinks.append(fn)
+
+
+def remove_sink(fn) -> None:
+    if fn in _sinks:
+        _sinks.remove(fn)
 
 
 def set_quiet(quiet: bool) -> None:
@@ -23,6 +34,8 @@ def _use_color() -> bool:
 
 
 def _emit(color: str, tag: str, msg: str) -> None:
+    for fn in list(_sinks):
+        fn(tag, msg)
     if _use_color():
         print(f"\033[{color}m[{tag}] {msg}\033[0m", file=sys.stderr)
     else:

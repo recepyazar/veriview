@@ -100,6 +100,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-json", action="store_true", help="keep the Yosys JSON netlist next to the SVG")
     p.add_argument("--open", action=argparse.BooleanOptionalAction, default=None,
                    help="open the result (default: the viewer opens when no -o is given in a terminal)")
+    p.add_argument("--ui", action="store_true",
+                   help="open the launcher page: pick files, the top module and options in the browser "
+                        "(also what plain `veriview` does in a terminal); an input folder is its starting folder")
     p.add_argument("--watch", action="store_true",
                    help="rebuild whenever a source file changes; with --html, serve the viewer on a local "
                         "web server that reloads automatically")
@@ -222,11 +225,12 @@ def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, w
     return out
 
 
-def run(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_intermixed_args(argv)
-    log.set_quiet(args.quiet)
-
+def prepare(argv: list[str] | None, parser: argparse.ArgumentParser | None = None,
+            args: argparse.Namespace | None = None) -> tuple[argparse.Namespace, list[str], list[str]]:
+    """Parse and validate the command line: (args, input files, html stages). Used by the CLI and the launcher."""
+    parser = parser or build_parser()
+    if args is None:
+        args = parser.parse_intermixed_args(argv)
     inputs = _split_positionals(args, parser)
     inputs, args.stem_hint = _expand_dirs(inputs)
 
@@ -270,6 +274,22 @@ def run(argv: list[str] | None = None) -> int:
         raise VeriViewError(f"Invalid --html-stages: {args.html_stages} (choose from {', '.join(STAGES)})")
     if args.stage not in html_stages:
         html_stages.insert(0, args.stage)
+    return args, inputs, html_stages
+
+
+def run(argv: list[str] | None = None) -> int:
+    import sys
+    parser = build_parser()
+    args = parser.parse_intermixed_args(argv)
+    log.set_quiet(args.quiet)
+    # `veriview` alone in a terminal (or --ui): the launcher page
+    interactive = sys.stdin.isatty() and sys.stdout.isatty()
+    if args.ui or (not args.inputs and not args.filelists and not args.install_deps and interactive):
+        from .launcher import launch
+        ensure_dependencies(install=False, assume_yes=args.yes, want_sv2v=False)
+        root = Path(args.inputs[0]) if args.inputs and Path(args.inputs[0]).is_dir() else Path.cwd()
+        return launch(root, port=args.port, open_browser=args.open is not False)
+    args, inputs, html_stages = prepare(argv, parser, args)
 
     ensure_dependencies(install=args.install_deps, assume_yes=args.yes,
                         want_sv2v=args.install_deps or args.frontend == "sv2v")
@@ -306,6 +326,16 @@ def _run_timing(args: argparse.Namespace, synth: Synthesizer, work: Path) -> int
     })
     print(format_report(res, root))
     return 0
+
+
+def report_text(args: argparse.Namespace, inputs: list[str]) -> str:
+    """--timing / --fsm report as text (used by the launcher)."""
+    import contextlib
+    import io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        _build(args, inputs, [])
+    return buf.getvalue()
 
 
 def _extract_fsms(args: argparse.Namespace, synth: Synthesizer, work: Path, strict: bool = False) -> dict:

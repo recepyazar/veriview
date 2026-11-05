@@ -88,6 +88,8 @@ veriview design.sv -o x.svg   # a plain SVG schematic instead of the viewer
 
 Add `-t NAME` to make any module the top, e.g. a sub-block of the folder: `veriview rtl/ -t alu` (or simply `veriview rtl/ alu`). If a folder contains several unrelated top-level modules, VeriView tells you which one it picked and lists the others.
 
+**Prefer clicking?** Run `veriview` without arguments (or `veriview --ui folder/`): a launcher page opens in the browser where you pick the files and the top module, tick the views and options, and open the viewer (live by default: it rebuilds whenever you save), or get the timing / FSM reports — no command-line options to remember. It only listens on `127.0.0.1` and only serves files below the start folder.
+
 That is all you need day to day: the top module is detected automatically and every feature (views, flatten, timing, FSM diagrams, simulation, source code) is a button in the viewer. The full syntax is
 
 ```bash
@@ -121,6 +123,7 @@ where `<input>` is one or more `.v`/`.sv` files, `.f` file lists or a folder. Th
 | `--bg <color\|none>` | Background color (default `white`). |
 | `--keep-json` | Keep the Yosys JSON netlist next to the SVG. |
 | `--open`, `--no-open` | Open the result in the browser (default: only the viewer, only without `-o`). |
+| `--ui` | Open the launcher page (what plain `veriview` does in a terminal); an input folder is its starting folder. |
 | `--watch` | Rebuild whenever a source file changes (Ctrl+C to stop). With `--html`, serves the viewer at `http://127.0.0.1:8765/` and reloads the browser automatically. |
 | `--port <N>` | Port for `--watch --html` (default 8765; the next free port is used if busy). |
 | `--install-deps` | Install missing dependencies. |
@@ -415,6 +418,7 @@ Code layout (`src/veriview/`):
 | `fsm.py` | state machine extraction (`$fsm` cells → states, transitions, conditions), `--fsm` |
 | `scope.py` | `--select`, `--depth`, `--cone` (operating on the JSON netlist) |
 | `watch.py` | `--watch`: file polling, local live-reload server |
+| `launcher.py`, `launcher.html` | the launcher page (`veriview` / `--ui`) |
 | `tools.py` | finding/installing yosys, netlistsvg, sv2v |
 
 CI runs lint and tests on Python 3.9 and 3.13 for every push and pull request.

@@ -96,7 +96,7 @@ def test_editor_save(proj):
 def test_editor_page_served(proj):
     from veriview.launcher import editor_page
     html = editor_page().decode()
-    assert "function toVerilog" in html and '"launcher": true' in html
+    assert "function toVerilog" in html and '"launcher": true' in html and "createSim" in html
     assert html.count("</script>") == 2
 
 
@@ -165,6 +165,57 @@ def test_viewer_gets_server_info(proj):
         assert code == 200 and 'window.VERIVIEW_SERVER = {"build": "abc"' in body
         code, body = _req(url + "api/source", {"id": "abc", "file": "x.v", "text": ""}, {"X-VeriView": "1"})
         assert code == 400 and "not a source file" in body
+    finally:
+        server.shutdown()
+        server.server_close()
+        la.shutdown()
+
+
+def test_drawings_save_load_and_listing(proj):
+    la = Launcher(proj)
+    design = {"module": "ha", "nodes": [{"id": 1, "type": "in", "name": "a", "x": 0, "y": 0}], "wires": [], "seq": 2}
+    r = la.save_drawing({"path": "drawn/ha", "text": "module ha(input a); endmodule\n", "design": design})
+    assert r == {"path": "drawn/ha.v", "drawing": "drawn/ha.veriview.json"}
+    assert la.save_drawing({"path": "drawn/ha.v", "text": "x", "design": design})["exists"]
+    back = la.load_drawing({"path": "drawn/ha.veriview.json"})
+    assert back["design"]["nodes"] == design["nodes"] and back["verilog"] == "drawn/ha.v"
+    files = {f["name"]: f for f in la.listing("drawn")["files"]}
+    assert files["ha.v"]["drawing"] == "drawn/ha.veriview.json" and "ha.veriview.json" not in files
+    (proj / "drawn" / "only.veriview.json").write_text(json.dumps({"veriview": "gate-editor", "nodes": []}))
+    assert {f["name"]: f["kind"] for f in la.listing("drawn")["files"]}["only.veriview.json"] == "drawing"
+    with pytest.raises(VeriViewError, match="outside"):
+        la.load_drawing({"path": "../x.veriview.json"})
+    with pytest.raises(VeriViewError, match="Not a drawing"):
+        la.load_drawing({"path": "counter.sv"})
+
+
+@needs_tools
+def test_view_urls(proj):
+    server, la, url = serve(proj, 18840)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    try:
+        code, body = _req(url + "view?f=counter.sv")
+        assert code == 200 and '"title": "counter.sv"' in body and '"files": ["counter.sv"]' in body
+        assert len(la.builds) == 1
+        assert _req(url + "view?f=counter.sv")[0] == 200 and len(la.builds) == 1      # the same build again
+        # changed on disk since: rebuilt before it is shown (no stale page after saving in the editor)
+        b = next(iter(la.builds.values()))
+        src = (proj / "counter.sv").read_text()
+        (proj / "counter.sv").write_text(src.replace("count + 1", "count + 2"))
+        _req(url + "view?f=counter.sv")
+        assert b.version >= 2
+        (proj / "bad.v").write_text("module bad(input a; endmodule\n")
+        code, body = _req(url + "view?f=bad.v")
+        assert code == 200 and "could not be built" in body and "syntax error" in body
+        assert _req(url + "view?f=../x.v")[0] == 400
+        # a drawn design: the viewer knows its drawing (Edit opens the gate editor)
+        la.save_drawing({"path": "ha.v", "text": "module ha(input a, b, output s); assign s = a ^ b; endmodule\n",
+                         "design": {"nodes": [], "wires": []}})
+        code, body = _req(url + "view?f=ha.v")
+        assert code == 200 and '"drawing": "ha.veriview.json"' in body
+        d = la.to_editor({"files": ["rca/rca.f"], "module": "fa"})
+        assert d["module"] == "fa" and "error" not in d
     finally:
         server.shutdown()
         server.server_close()

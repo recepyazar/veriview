@@ -5,7 +5,7 @@ from pathlib import Path
 
 VIEWER = Path(__file__).resolve().parent.parent / "src" / "veriview" / "viewer.html"
 # text that is the same in both languages
-NEUTRAL = {"SVG", "VCD", "VeriView", "◇ FSM", "◐", "TR", "Language / Dil"}
+NEUTRAL = {"SVG", "VCD", "VeriView", "◇ FSM", "◐", "TR", "Language / Dil", "Türkçe"}
 
 
 def _tr_keys(src: str) -> set[str]:

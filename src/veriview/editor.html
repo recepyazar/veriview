@@ -39,6 +39,21 @@
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
   .btn.primary:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.08); }
   .btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  header a.brand { color: inherit; text-decoration: none; font-weight: 700; }
+  header a.brand:hover { color: var(--accent); }
+  .seg { display: inline-flex; }
+  .seg .btn { border-radius: 0; margin-left: -1px; }
+  .seg .btn:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .seg .btn:last-child { border-radius: 0 6px 6px 0; }
+  .doc { color: var(--muted); font-size: 13px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .doc b { color: var(--text); font-weight: 600; }
+  .doc .dirty { color: var(--sel); }
+  .menu { position: relative; }
+  .menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 220px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); }
+  .menu-pop .btn { display: block; width: 100%; text-align: left; border: 0; padding: 6px 10px; }
+  .menu-pop .btn:hover { background: var(--accent-soft); }
+  .menu-pop hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
   aside { grid-area: pal; background: var(--panel); border-right: 1px solid var(--border); padding: 10px; overflow: auto; }
   aside h3 { margin: 6px 0; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
   aside .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
@@ -112,19 +127,32 @@
 </head>
 <body>
 <header>
-  <div class="brand">VeriView<small data-t>Gate editor</small></div>
+  <a class="brand" id="brand" href="/" title="Start page: all designs of the folder">VeriView</a>
+  <div class="seg" role="group" aria-label="Mode">
+    <button class="btn" id="mode-view" title="Save and look at the design in the viewer (schematic, simulation, timing, FSMs)" data-t>👁 View</button>
+    <button class="btn on" id="mode-edit" title="You are editing the drawing" data-t>✎ Edit</button>
+  </div>
+  <span class="doc" id="doc-name"></span>
   <label><span data-t>Module</span> <input id="modname" value="my_design" spellcheck="false"></label>
   <button class="btn" id="b-undo" title="Undo (Ctrl+Z)">↶</button>
   <button class="btn" id="b-redo" title="Redo (Ctrl+Y)">↷</button>
   <span class="spacer"></span>
-  <button class="btn" id="b-new" data-t>New</button>
-  <button class="btn" id="b-load" data-t>Load…</button>
-  <button class="btn" id="b-save" data-t>Save design</button>
-  <button class="btn" id="b-v" data-t>Download Verilog</button>
   <button class="btn" id="b-sim" title="Simulation: click inputs to change them, clock the registers, watch the wires" data-t>▶ Simulate</button>
-  <button class="btn primary" id="b-open" title="Save the Verilog file in the folder and open it in the viewer (simulation, timing, FSM…)" data-t>▶ Save &amp; open in viewer</button>
-  <button class="btn" id="btn-lang" title="Language / Dil">TR</button>
-  <button class="btn" id="btn-theme" title="Toggle light/dark theme">◐</button>
+  <button class="btn primary" id="b-save" title="Save (Ctrl+S): the Verilog file, with the drawing next to it" data-t>Save</button>
+  <div class="menu">
+    <button class="btn" id="b-more" title="More" aria-haspopup="true">⋯</button>
+    <div class="menu-pop" id="more" hidden>
+      <button class="btn" id="b-new" data-t>+ New drawing</button>
+      <button class="btn" id="b-saveas" data-t>Save as…</button>
+      <hr>
+      <button class="btn" id="b-load" title="Load a drawing (.veriview.json) from your computer" data-t>Open a drawing file…</button>
+      <button class="btn" id="b-dl" data-t>⤓ Drawing (.json)</button>
+      <button class="btn" id="b-v" data-t>⤓ Verilog (.v)</button>
+      <hr>
+      <button class="btn" id="btn-lang" title="Language / Dil">Türkçe</button>
+      <button class="btn" id="btn-theme" title="Toggle light/dark theme" data-t>◐ Light / dark</button>
+    </div>
+  </div>
   <input type="file" id="file" accept=".json,application/json" hidden>
 </header>
 <aside>
@@ -191,10 +219,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
   const SVGNS = "http://www.w3.org/2000/svg";
   // ---- language -------------------------------------------------------------------------
   const TR = {
-    "Gate editor": "Kapı editörü", "Module": "Modül", "New": "Yeni", "Load…": "Aç…", "Save design": "Tasarımı kaydet",
-    "Download Verilog": "Verilog'u indir", "▶ Save & open in viewer": "▶ Kaydet ve görüntüleyicide aç",
-    "Save the Verilog file in the folder and open it in the viewer (simulation, timing, FSM…)":
-      "Verilog dosyasını klasöre kaydet ve görüntüleyicide aç (simülasyon, zamanlama, FSM…)",
+    "Gate editor": "Kapı editörü", "Module": "Modül", 
     "Toggle light/dark theme": "Açık / koyu tema", "Ports": "Portlar", "Input": "Giriş", "Output": "Çıkış", "Gates": "Kapılar",
     "Flip-flops": "Flip-flop'lar", "DFF with active-low asynchronous reset": "Aktif-düşük asenkron reset'li DFF", "Copy": "Kopyala",
     "Selection": "Seçim", "Undo (Ctrl+Z)": "Geri al (Ctrl+Z)", "Redo (Ctrl+Y)": "Yinele (Ctrl+Y)",
@@ -204,7 +229,6 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       "<b>Çift tık:</b> kapıya, tele, porta ya da etikete isim ver · <b>Tel:</b> seçince ortadaki tutamağı sürükle · <b>Etiket:</b> aynı isimli etiketler bağlıdır<br>" +
       "<b>Bus:</b> seçim panelinde bit sayısını ayarla; kapılar, çıkışlar ve etiketler genişliği bağlandıkları telden alır · <b>Ayır / Birleştir:</b> bus ↔ tek bitler",
     "Converting {m} to gates…": "{m} kapılara dönüştürülüyor…",
-    "{m}: {n} gates and flip-flops (Ctrl+Z brings back the previous drawing)": "{m}: {n} kapı ve flip-flop (önceki çizim için Ctrl+Z)",
     "ports wider than {n} bits split into one port per bit: {p}": "{n} bitten geniş portlar bit bit ayrıldı: {p}",
     "Name for this port": "Bu port için isim", "Copied.": "Kopyalandı.", "Saved {f}; opening the viewer…": "{f} kaydedildi; görüntüleyici açılıyor…",
     "Saving and opening needs the launcher (run `veriview` or `veriview --editor`). Use Download Verilog instead.":
@@ -246,6 +270,20 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "Width: {n} bit(s), from its driver": "Genişlik: {n} bit, sürücüsünden", "Value (decimal)": "Değer (onluk)",
     "Data inputs": "Veri girişi sayısı",
     "width mismatch: {a} bits into {pin} of {node} ({b} bits)": "genişlik uyuşmuyor: {node} {pin} girişine {a} bit geliyor ({b} bit bekleniyor)",
+    "Start page: all designs of the folder": "Başlangıç sayfası: klasördeki tüm tasarımlar", "Mode": "Mod",
+    "👁 View": "👁 Görüntüle", "✎ Edit": "✎ Düzenle", "You are editing the drawing": "Çizimi düzenliyorsun",
+    "Save and look at the design in the viewer (schematic, simulation, timing, FSMs)": "Kaydet ve tasarımı görüntüleyicide incele (şema, simülasyon, zamanlama, FSM)",
+    "Save": "Kaydet", "Save (Ctrl+S): the Verilog file, with the drawing next to it": "Kaydet (Ctrl+S): Verilog dosyası ve yanında çizim",
+    "More": "Diğer", "+ New drawing": "+ Yeni çizim", "Save as…": "Farklı kaydet…", "Open a drawing file…": "Çizim dosyası aç…",
+    "Load a drawing (.veriview.json) from your computer": "Bilgisayarından bir çizim (.veriview.json) yükle",
+    "⤓ Drawing (.json)": "⤓ Çizimi indir (.json)", "⤓ Verilog (.v)": "⤓ Verilog'u indir (.v)", "◐ Light / dark": "◐ Açık / koyu",
+    "unsaved drawing": "kaydedilmemiş çizim", "unsaved changes": "kaydedilmemiş değişiklikler", "Saved {f}": "{f} kaydedildi",
+    "Saving needs the launcher (run `veriview`). Use ⋯ → Verilog instead.": "Kaydetmek için başlatıcı gerekli (`veriview`). Bunun yerine ⋯ → Verilog'u indir.",
+    "Save as (file name in the folder; the drawing is saved next to it):": "Farklı kaydet (klasördeki dosya adı; çizim yanına kaydedilir):",
+    "The current drawing has unsaved changes. Discard them?": "Bu çizimde kaydedilmemiş değişiklikler var. Silinsin mi?",
+    "The last drawing ({f}) has unsaved changes. Discard them?": "Son çizimde ({f}) kaydedilmemiş değişiklikler var. Silinsin mi?",
+    "Unsaved changes restored.": "Kaydedilmemiş değişiklikler geri yüklendi.",
+    "{m}: {n} gates and flip-flops — Save keeps it as a new file": "{m}: {n} kapı ve flip-flop — Kaydet ile yeni bir dosya olarak saklanır",
     "▶ Simulate": "▶ Simüle et", "■ Stop simulation": "■ Simülasyonu durdur",
     "Simulation: click inputs to change them, clock the registers, watch the wires": "Simülasyon: girişlere tıklayıp değiştir, register'ları saatle, telleri izle",
     "Clock": "Saat", "Step ⏵": "Adım ⏵", "One clock cycle (rising and falling edge)": "Bir saat çevrimi (yükselen ve düşen kenar)",
@@ -266,7 +304,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "<b>Keys:</b> Ctrl+A all · Ctrl+C/X/V copy/cut/paste · Ctrl+D duplicate · Ctrl+Z/Y undo/redo · Delete · Esc deselect<br>" +
     "<b>Double-click:</b> name a gate, wire, port or label · <b>Wire:</b> select it and drag the handle in its middle · <b>Label:</b> labels with the same name are connected<br>" +
     "<b>Buses:</b> set the bits in the selection panel; gates, outputs and labels take the width of what drives them · <b>Split / Merge:</b> bus ↔ single bits";
-  $("btn-lang").textContent = LANG === "tr" ? "EN" : "TR";
+  $("btn-lang").textContent = LANG === "tr" ? "English" : "Türkçe";
   $("btn-lang").onclick = () => { try { localStorage.setItem("veriview-lang", LANG === "tr" ? "en" : "tr"); } catch (e) {} location.reload(); };
   const root = document.documentElement;
   try { const th = localStorage.getItem("veriview-theme"); if (th) root.dataset.theme = th; } catch (e) {}
@@ -321,7 +359,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     if (now === last) return;
     if (last !== null) { hist.undo.push(last); if (hist.undo.length > 200) hist.undo.shift(); hist.redo.length = 0; }
     last = now;
-    try { localStorage.setItem(STORE, JSON.stringify({ ...D, module: $("modname").value })); } catch (e) {}
+    saveDraft();
     updateUndo();
   }
   function restore(snap) {
@@ -329,12 +367,25 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     D = s.D; $("modname").value = s.module; last = snap;
     for (const id of [...sel.nodes]) if (!D.nodes.some((n) => n.id === id)) sel.nodes.delete(id);
     for (const id of [...sel.wires]) if (!D.wires.some((w) => w.id === id)) sel.wires.delete(id);
-    try { localStorage.setItem(STORE, JSON.stringify({ ...D, module: $("modname").value })); } catch (e) {}
+    saveDraft();
     draw(); updateUndo();
   }
   const undo = () => { if (!hist.undo.length) return; hist.redo.push(last); restore(hist.undo.pop()); };
   const redo = () => { if (!hist.redo.length) return; hist.undo.push(last); restore(hist.redo.pop()); };
-  const updateUndo = () => { $("b-undo").disabled = !hist.undo.length; $("b-redo").disabled = !hist.redo.length; };
+  const updateUndo = () => { $("b-undo").disabled = !hist.undo.length; $("b-redo").disabled = !hist.redo.length; renderTitle(); };
+  // ---- the file being edited: <stem>.v + <stem>.veriview.json in the launcher folder ------------
+  let FILE = null, VFILE = null, savedSnap = null;
+  const isDirty = () => snapshot() !== savedSnap;
+  function saveDraft() {   // the browser keeps the last drawing (also unsaved changes) until it is saved
+    try { localStorage.setItem(STORE, JSON.stringify({ ...D, module: $("modname").value, file: FILE, vfile: VFILE, clean: !isDirty() })); } catch (e) {}
+  }
+  function renderTitle() {
+    const dirty = isDirty();
+    $("doc-name").innerHTML = (VFILE ? `<b>${esc(VFILE.split("/").pop())}</b>` : esc(_t("unsaved drawing"))) + (dirty ? ' <span class="dirty" title="' + esc(_t("unsaved changes")) + '">●</span>' : "");
+    if (VFILE) $("doc-name").title = VFILE;
+    document.title = `${VFILE ? VFILE.split("/").pop() : _t("unsaved drawing")}${dirty ? " ●" : ""} · VeriView`;
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   $("b-undo").onclick = undo; $("b-redo").onclick = redo;
 
   // ---- view (pan / zoom) ------------------------------------------------------------------
@@ -839,6 +890,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     else if (mod && k === "x") { e.preventDefault(); const n = copySel(); if (n) { removeSel(); flash(_t("Cut {n} items.", { n })); } }
     else if (mod && k === "v") { e.preventDefault(); const n = paste(); if (n) flash(_t("Pasted {n} items.", { n })); }
     else if (mod && k === "d") { e.preventDefault(); if (copySel()) paste(); }
+    else if (mod && k === "s") { e.preventDefault(); saveDrawing(); }
     else if (mod && k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
     else if (mod && (k === "y" || (k === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
     else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeSel(); }
@@ -904,7 +956,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
   $("b-v").onclick = () => { const v = verilog(); download(`${v.mod}.v`, v.text, "text/plain"); };
-  $("b-save").onclick = () => download(`${verilog().mod}.veriview.json`, JSON.stringify({ veriview: "gate-editor", version: 1, module: $("modname").value, ...D }, null, 1), "application/json");
+  $("b-dl").onclick = () => download(`${verilog().mod}.veriview.json`, JSON.stringify({ veriview: "gate-editor", version: 1, module: $("modname").value, ...D }, null, 1), "application/json");
   $("b-load").onclick = () => $("file").click();
   $("file").onchange = async () => {
     const f = $("file").files[0];
@@ -912,45 +964,81 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     try {
       const j = JSON.parse(await f.text());
       if (j.veriview !== "gate-editor" || !Array.isArray(j.nodes)) throw new Error();
-      D = { nodes: j.nodes, wires: j.wires || [], seq: j.seq || 1 + Math.max(0, ...j.nodes.map((n) => n.id), ...(j.wires || []).map((w) => w.id)) };
-      $("modname").value = j.module || "my_design";
-      clearSel(); commit(); draw();
+      if (!discardOk()) return;
+      setDesign(j); FILE = VFILE = null; savedSnap = null; resetHistory(); location.hash = "";
     } catch (e) { alert(_t("Not a VeriView design file.")); }
     $("file").value = "";
   };
-  $("b-new").onclick = () => { if (!D.nodes.length || confirm(_t("Delete the whole design?"))) { D = { nodes: [], wires: [], seq: 1 }; clearSel(); commit(); draw(); } };
   $("b-copy").onclick = async () => { try { await navigator.clipboard.writeText(verilog().text); flash(_t("Copied.")); } catch (e) {} };
   const api = async (path, body) => {
     const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-VeriView": "1" }, body: JSON.stringify(body) });
     return r.json();
   };
-  $("b-open").onclick = async () => {
-    if (!EDITOR || !EDITOR.launcher) { alert(_t("Saving and opening needs the launcher (run `veriview` or `veriview --editor`). Use Download Verilog instead.")); return; }
+  function setDesign(j) {
+    D = { nodes: j.nodes || [], wires: j.wires || [], seq: j.seq || 1 + Math.max(0, ...(j.nodes || []).map((n) => n.id), ...(j.wires || []).map((w) => w.id)) };
+    $("modname").value = j.module || "my_design";
+    clearSel();
+  }
+  function resetHistory() { hist.undo.length = hist.redo.length = 0; last = snapshot(); saveDraft(); updateUndo(); fitAll(); draw(); }
+  const discardOk = () => !isDirty() || !D.nodes.length || confirm(_t("The current drawing has unsaved changes. Discard them?"));
+  function pushRecent() {
+    if (!FILE) return;
+    try {
+      const k = "veriview-recent:" + (EDITOR.root || ""), url = "/editor?file=" + encodeURIComponent(FILE);
+      const items = JSON.parse(localStorage.getItem(k) || "[]").filter((x) => x.url !== url);
+      items.unshift({ url, title: (VFILE || FILE).split("/").pop(), kind: "editor", time: Date.now() });
+      localStorage.setItem(k, JSON.stringify(items.slice(0, 10)));
+    } catch (e) {}
+  }
+  // Save: <name>.v (generated Verilog) and <name>.veriview.json (the drawing) in the folder
+  async function saveDrawing(askName = false) {
+    if (!EDITOR || !EDITOR.launcher) { alert(_t("Saving needs the launcher (run `veriview`). Use ⋯ → Verilog instead.")); return false; }
     const v = verilog();
-    let name = prompt(_t("File name (in the launcher folder):"), `${v.mod}.v`);
-    if (!name) return;
-    if (!/\.s?v$/.test(name)) name += ".v";
-    const tab = window.open("about:blank", "_blank");
-    let r = await api("/api/save", { path: name, text: v.text, overwrite: false });
-    if (r.exists && confirm(_t("{f} exists. Overwrite?", { f: name }))) r = await api("/api/save", { path: name, text: v.text, overwrite: true });
-    if (r.error || r.exists) { if (tab) tab.close(); if (r.error) alert(r.error); return; }
-    flash(_t("Saved {f}; opening the viewer…", { f: r.path }));
-    const b = await api("/api/build", { files: [r.path], stages: ["elab", "opt", "gate"], live: true });
-    if (b.error && !b.version) { if (tab) tab.close(); alert(b.error); return; }
-    if (tab) tab.location = b.url; else window.open(b.url, "_blank");
+    let path = askName ? null : VFILE, overwrite = !!path;
+    if (!path) {
+      path = prompt(_t("Save as (file name in the folder; the drawing is saved next to it):"), VFILE || `${v.mod}.v`);
+      if (!path) return false;
+    }
+    const design = { module: $("modname").value, nodes: D.nodes, wires: D.wires, seq: D.seq };
+    let r = await api("/api/drawing/save", { path, text: v.text, design, overwrite });
+    if (r.exists) {
+      if (!confirm(_t("{f} exists. Overwrite?", { f: r.path }))) return false;
+      r = await api("/api/drawing/save", { path, text: v.text, design, overwrite: true });
+    }
+    if (r.error) { alert(r.error); return false; }
+    FILE = r.drawing; VFILE = r.path; savedSnap = snapshot(); saveDraft(); renderTitle();
+    history.replaceState(null, "", "/editor?file=" + encodeURIComponent(FILE));
+    pushRecent();
+    flash(_t("Saved {f}", { f: VFILE }));
+    return true;
+  }
+  $("b-save").onclick = () => saveDrawing();
+  $("b-saveas").onclick = () => saveDrawing(true);
+  $("b-new").onclick = () => { if (discardOk()) location.href = "/editor?new=1"; };
+  // View: save, then open the Verilog in the viewer (same tab: Back returns to the drawing)
+  $("mode-view").onclick = async () => {
+    if ((isDirty() || !VFILE) && !(await saveDrawing())) return;
+    location.href = "/view?f=" + encodeURIComponent(VFILE);
   };
+  $("mode-edit").onclick = () => {};
+  $("b-more").onclick = (e) => { e.stopPropagation(); $("more").hidden = !$("more").hidden; };
+  document.addEventListener("click", (e) => { if (!e.target.closest || !e.target.closest("#more")) $("more").hidden = true; });
+  window.addEventListener("beforeunload", (e) => { if (isDirty() && D.nodes.length && VFILE) { e.preventDefault(); e.returnValue = ""; } });
 
   // ---- start -----------------------------------------------------------------------------
-  try { const s = JSON.parse(localStorage.getItem(STORE) || "null"); if (s && s.nodes) { D = { nodes: s.nodes, wires: s.wires || [], seq: s.seq || 1 }; $("modname").value = s.module || "my_design"; } } catch (e) {}
-  if (!D.nodes.length) {   // a small starting example: y = a & b
-    D = { nodes: [{ id: 1, type: "in", name: "a", x: 120, y: 200 }, { id: 2, type: "in", name: "b", x: 120, y: 280 },
-      { id: 3, type: "and", n: 2, x: 300, y: 230 }, { id: 4, type: "out", name: "y", x: 460, y: 235 }],
-    wires: [{ id: 5, from: { node: 1, pin: "Y" }, to: { node: 3, pin: "A" } }, { id: 6, from: { node: 2, pin: "Y" }, to: { node: 3, pin: "B" } },
-      { id: 7, from: { node: 3, pin: "Y" }, to: { node: 4, pin: "A" } }], seq: 8 };
-  }
-  last = snapshot(); updateUndo();
-  // the drawing fills the view (not too zoomed in for tiny designs)
-  function fitAll() {
+  //   /editor?file=x.veriview.json   a saved drawing      /editor?new=1   an empty drawing
+  //   /editor?f=<files>&module=m     a module of a design, converted to gates (from the viewer)
+  //   /editor                        the last drawing of this browser (also with unsaved changes)
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(STORE) || "null"); } catch (e) {}
+  const qs = new URLSearchParams(location.search);
+  const STARTER = { module: "my_design", nodes: [{ id: 1, type: "in", name: "a", x: 120, y: 200 }, { id: 2, type: "in", name: "b", x: 120, y: 280 },
+    { id: 3, type: "and", n: 2, x: 300, y: 230 }, { id: 4, type: "out", name: "y", x: 460, y: 235 }],
+  wires: [{ id: 5, from: { node: 1, pin: "Y" }, to: { node: 3, pin: "A" } }, { id: 6, from: { node: 2, pin: "Y" }, to: { node: 3, pin: "B" } },
+    { id: 7, from: { node: 3, pin: "Y" }, to: { node: 4, pin: "A" } }], seq: 8 };
+  const draftUnsaved = draft && draft.nodes && draft.nodes.length && !draft.clean;
+  const useDraft = () => { setDesign(draft); FILE = draft.file || null; VFILE = draft.vfile || null; savedSnap = draft.clean ? snapshot() : null; };
+  function fitAll() {   // the drawing fills the view (not too zoomed in for tiny designs)
     const r = $("canvas").getBoundingClientRect(), asp = r.width && r.height ? r.height / r.width : 0.66;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const nd of D.nodes) { const z = sizeOf(nd); x0 = Math.min(x0, nd.x - 30); y0 = Math.min(y0, nd.y - 20); x1 = Math.max(x1, nd.x + z.w); y1 = Math.max(y1, nd.y + z.h); }
@@ -960,25 +1048,42 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     } else vb = { x: 0, y: 0, w: 900, h: 900 * asp };
     setVB();
   }
-  fitAll();
-  draw();
-  // opened from the viewer ("✎ Editor"): /editor?build=<id>&module=<name> -> the module as gates
-  const qs = new URLSearchParams(location.search);
-  if (qs.get("build") && EDITOR && EDITOR.launcher) {
-    const m = qs.get("module") || "";
-    history.replaceState(null, "", location.pathname);
-    $("status").textContent = _t("Converting {m} to gates…", { m });
-    api("/api/to_editor", { id: qs.get("build"), module: m }).then((r) => {
-      if (r.error) { generate(); alert(r.error); return; }
-      D = { nodes: r.nodes, wires: r.wires, seq: r.seq };
-      $("modname").value = r.module;
-      clearSel(); commit(); fitAll(); draw();
-      const gates = r.nodes.filter((n) => !PORTS.includes(n.type)).length;
-      const notes = (r.warn || []).map((w) => { const m = /^ports wider than (\d+) bits split into one port per bit: (.*)$/.exec(w); return m ? _t("ports wider than {n} bits split into one port per bit: {p}", { n: m[1], p: m[2] }) : w; });
-      $("status").textContent = [_t("{m}: {n} gates and flip-flops (Ctrl+Z brings back the previous drawing)", { m: r.module, n: gates }), ...notes].join(" · ");
-      clearTimeout(flash.t); flash.t = setTimeout(generate, 6000);
-    }).catch((e) => { generate(); alert(String(e)); });
+  const keepDraft = () => draftUnsaved && !confirm(_t("The last drawing ({f}) has unsaved changes. Discard them?", { f: draft.vfile || _t("unsaved drawing") }));
+  async function start() {
+    const file = qs.get("file");
+    if (file && EDITOR && EDITOR.launcher) {
+      if (draft && draft.file === file && draftUnsaved) { useDraft(); flash(_t("Unsaved changes restored.")); }
+      else {
+        if (draftUnsaved && draft.file !== file && keepDraft()) { useDraft(); }
+        else {
+          const r = await api("/api/drawing/load", { path: file });
+          if (r.error) { alert(r.error); location.href = "/"; return; }
+          setDesign(r.design); FILE = r.path; VFILE = r.verilog || file.replace(/\.veriview\.json$/, ".v"); savedSnap = snapshot();
+        }
+      }
+      pushRecent();
+    } else if (qs.get("new")) {
+      if (keepDraft()) useDraft();
+      else { setDesign({ module: "my_design", nodes: [], wires: [], seq: 1 }); FILE = VFILE = null; savedSnap = snapshot(); }
+    } else if ((qs.get("f") || qs.get("build")) && EDITOR && EDITOR.launcher) {
+      if (keepDraft()) useDraft();
+      else {
+        const m = qs.get("module") || "";
+        $("status").textContent = _t("Converting {m} to gates…", { m });
+        const r = await api("/api/to_editor", qs.get("build") ? { id: qs.get("build"), module: m } : { files: qs.getAll("f"), module: m });
+        if (r.error) { alert(r.error); history.back(); return; }
+        setDesign({ ...r, module: r.module }); FILE = VFILE = null; savedSnap = null;
+        const gates = r.nodes.filter((n) => !PORTS.includes(n.type)).length;
+        const notes = (r.warn || []).map((w) => { const x = /^ports wider than (\d+) bits split into one port per bit: (.*)$/.exec(w); return x ? _t("ports wider than {n} bits split into one port per bit: {p}", { n: x[1], p: x[2] }) : w; });
+        setTimeout(() => { $("status").textContent = [_t("{m}: {n} gates and flip-flops — Save keeps it as a new file", { m: r.module, n: gates }), ...notes].join(" · "); clearTimeout(flash.t); flash.t = setTimeout(generate, 6000); });
+      }
+    } else if (draft && draft.nodes) useDraft();
+    else { setDesign(STARTER); savedSnap = null; }
+    history.replaceState(null, "", FILE ? "/editor?file=" + encodeURIComponent(FILE) : "/editor");
+    resetHistory();
   }
+  if (EDITOR && !EDITOR.launcher) $("brand").removeAttribute("href");
+  start();
 })();
 </script>
 </body>

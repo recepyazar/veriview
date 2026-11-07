@@ -22,149 +22,142 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; min-height: 100%; }
   body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  button, input, select, textarea { font: inherit; color: inherit; }
-  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
-  header .brand { font-weight: 700; font-size: 16px; }
-  header .brand small { color: var(--muted); font-weight: 400; margin-left: 4px; font-size: 13px; }
-  header .root { flex: 1; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  a.btn { text-decoration: none; color: inherit; display: inline-block; }
+  button, input, select { font: inherit; color: inherit; }
+  header { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  header .brand { font-weight: 700; font-size: 16px; color: inherit; text-decoration: none; }
+  header .brand small { color: var(--muted); font-weight: 400; margin-left: 4px; font-size: 12px; }
+  header .where { flex: 1; color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .btn { border: 1px solid var(--border); background: var(--panel); border-radius: 6px; padding: 5px 12px; cursor: pointer; white-space: nowrap; }
   .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .btn:disabled { opacity: 0.5; cursor: default; }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
   .btn.primary:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.08); }
   .btn.small { padding: 1px 8px; font-size: 12px; }
-  main { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.2fr); gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
+  .menu { position: relative; }
+  .menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; min-width: 190px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15); }
+  .menu-pop button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+  .menu-pop button:hover { background: var(--accent-soft); }
+  main { display: grid; grid-template-columns: minmax(300px, 1.5fr) minmax(240px, 1fr); gap: 16px; padding: 16px; max-width: 1100px; margin: 0 auto; }
   @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 0; }
-  .card h2 { margin: 0 0 10px; font-size: 15px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 0; align-self: start; }
+  .card h2 { margin: 0 0 8px; font-size: 15px; }
   .muted { color: var(--muted); }
   .crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; margin-bottom: 8px; font-size: 13px; }
   .crumbs a { color: var(--accent); cursor: pointer; text-decoration: none; padding: 1px 4px; border-radius: 4px; }
   .crumbs a:hover { background: var(--accent-soft); }
   .crumbs .sep { color: var(--muted); }
-  ul.list { list-style: none; margin: 0; padding: 0; max-height: 52vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
-  ul.list li { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-bottom: 1px solid var(--border); }
+  ul.list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; max-height: 62vh; overflow: auto; }
+  ul.list li { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
   ul.list li:last-child { border-bottom: 0; }
-  ul.list li.dir { cursor: pointer; }
-  ul.list li.dir:hover, ul.list li label:hover { background: var(--accent-soft); }
-  ul.list li label { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; min-width: 0; }
-  ul.list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  ul.list li.go { cursor: pointer; }
+  ul.list li.go:hover { background: var(--accent-soft); }
+  ul.list li.off { color: var(--muted); }
+  ul.list .ico { width: 1.4em; text-align: center; flex: none; }
+  ul.list .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tag { font-size: 11px; padding: 0 6px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
   .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-  .row > label:first-child { min-width: 110px; color: var(--muted); }
+  .row > label:first-child { min-width: 120px; color: var(--muted); }
   select, input[type="text"] { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
   input[type="text"] { min-width: 0; flex: 1; }
-  .checks label { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
-  details { margin: 8px 0; }
+  details { margin-top: 12px; }
   details summary { cursor: pointer; color: var(--muted); }
-  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
-  .sel-info { margin-top: 8px; font-size: 13px; }
-  pre.out { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 40vh; overflow: auto;
-    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; margin: 10px 0 0; }
-  pre.out:empty { display: none; }
-  .err { color: var(--bad); }
-  .ok { color: var(--ok); }
-  table.recent { width: 100%; border-collapse: collapse; font-size: 13px; }
-  table.recent td { padding: 4px 6px; border-top: 1px solid var(--border); }
-  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; }
+  .err { color: var(--bad); white-space: pre-wrap; }
+  ul.recent { list-style: none; margin: 0; padding: 0; }
+  ul.recent li a { display: flex; gap: 8px; align-items: baseline; padding: 6px 4px; border-radius: 6px; color: inherit; text-decoration: none; }
+  ul.recent li a:hover { background: var(--accent-soft); }
+  ul.recent .when { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .empty { color: var(--muted); font-size: 13px; }
+  #busy { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.25); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  #busy div { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; font-size: 15px; }
+  .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <header>
-  <div class="brand">VeriView<small id="version"></small></div>
-  <div class="root" id="root"></div>
-  <a class="btn" id="btn-editor" href="/editor" target="_blank" title="Draw a circuit from gates and turn it into Verilog" data-t>✎ Gate editor</a>
-  <button class="btn" id="btn-lang" title="Language / Dil">TR</button>
-  <button class="btn" id="btn-theme" title="Toggle light/dark theme">◐</button>
+  <a class="brand" href="/">VeriView<small id="version"></small></a>
+  <span class="where" id="root"></span>
+  <button class="btn primary" id="new" title="Start an empty drawing in the gate editor" data-t>+ New drawing</button>
+  <div class="menu">
+    <button class="btn" id="menu-btn" title="More" aria-haspopup="true">⋯</button>
+    <div class="menu-pop" id="menu" hidden>
+      <button id="m-lang"></button>
+      <button id="m-theme" data-t>Light / dark theme</button>
+    </div>
+  </div>
 </header>
 <main>
   <section class="card">
-    <h2 data-t>Files</h2>
-    <div class="row" style="margin:0 0 8px"><div class="crumbs" id="crumbs" style="flex:1;margin:0"></div>
-      <button class="btn small" id="use-dir" title="Select this folder's .f file list, or all its source files" data-t>Use this folder</button></div>
+    <h2 data-t>Designs</h2>
+    <div class="crumbs" id="crumbs"></div>
     <ul class="list" id="files"></ul>
-    <div class="sel-info"><span id="sel-info"></span> <button class="btn small" id="sel-clear" data-t>Clear selection</button></div>
-  </section>
-  <section class="card">
-    <h2 data-t>Settings</h2>
-    <div class="row"><label for="top" data-t>Top module</label><select id="top"></select><span id="top-busy"></span></div>
-    <div class="row checks"><label data-t>Views</label>
-      <label><input type="checkbox" class="stage" value="elab" checked> RTL</label>
-      <label><input type="checkbox" class="stage" value="opt" checked> <span data-t>Optimized</span></label>
-      <label><input type="checkbox" class="stage" value="gate" checked> <span data-t>Gates</span></label>
-    </div>
-    <div class="row"><label for="lang" data-t>Viewer language</label>
-      <select id="lang"><option value="auto" data-t>Browser language</option><option value="en">English</option><option value="tr">Türkçe</option></select>
-    </div>
-    <div class="row checks"><label data-t>Options</label>
-      <label><input type="checkbox" id="flatten"> <span data-t>Start flattened</span></label>
-      <label><input type="checkbox" id="live" checked> <span data-t>Live: rebuild when a file changes</span></label>
-    </div>
-    <details>
-      <summary data-t>Advanced</summary>
+    <p class="empty" data-t>Click a file, a file list (.f) or a folder's “Open” to view it; drawings open in the gate editor with “✎ Edit”.</p>
+    <details id="adv">
+      <summary data-t>Advanced: several files, top module, options</summary>
+      <div class="row"><label data-t>Several files</label>
+        <span class="muted" id="sel-info"></span> <button class="btn small" id="sel-clear" data-t>Clear</button></div>
+      <div class="row"><label for="top" data-t>Top module</label><select id="top"></select><span id="top-busy"></span></div>
+      <div class="row"><label for="flatten" data-t>Start flattened</label><input type="checkbox" id="flatten"></div>
       <div class="row"><label for="incdirs" data-t>Include folders</label><input type="text" id="incdirs" placeholder="rtl/include, ip/common"></div>
       <div class="row"><label for="defines" data-t>Defines</label><input type="text" id="defines" placeholder="SYNTH, WIDTH=8"></div>
       <div class="row"><label for="frontend" data-t>Frontend</label>
-        <select id="frontend"><option value="auto">auto</option><option value="yosys">yosys</option><option value="sv2v">sv2v</option><option value="slang">slang</option></select>
-      </div>
+        <select id="frontend"><option value="auto">auto</option><option value="yosys">yosys</option><option value="sv2v">sv2v</option><option value="slang">slang</option></select></div>
+      <div class="row"><button class="btn primary" id="open-sel" data-t>Open the selected files</button></div>
+      <p class="empty" data-t>Tick files in the list to open them together. Include folders, defines and the frontend apply to every design opened here.</p>
     </details>
-    <div class="actions">
-      <button class="btn primary" id="go" data-t>▶ Open viewer</button>
-      <span class="muted">|</span>
-      <input type="text" id="period" value="2ns" style="max-width:80px" title="Clock period, e.g. 2ns, 500ps, 250MHz">
-      <button class="btn" id="go-timing" data-t>⏱ Timing report</button>
-      <button class="btn" id="go-fsm" data-t>◇ List FSMs</button>
-    </div>
-    <pre class="out" id="out"></pre>
-    <div id="recent-box" hidden>
-      <h2 style="margin-top:14px" data-t>Viewers</h2>
-      <table class="recent" id="recent"></table>
-    </div>
+    <div class="err" id="err"></div>
+  </section>
+  <section class="card">
+    <h2 data-t>Recently opened</h2>
+    <ul class="recent" id="recent"></ul>
   </section>
 </main>
+<div id="busy" hidden><div><span class="spinner"></span><span id="busy-msg"></span></div></div>
 <script>
 const DATA = /*__LAUNCHER_DATA__*/null;
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
   const TR = {
-    "Files": "Dosyalar", "Clear selection": "Seçimi temizle", "Settings": "Ayarlar", "Top module": "Top modül",
-    "Views": "Görünümler", "Optimized": "Optimize", "Gates": "Kapılar", "Viewer language": "Görüntüleyici dili",
-    "Browser language": "Tarayıcı dili", "Options": "Seçenekler", "Start flattened": "Düzleştirilmiş başlat",
-    "Live: rebuild when a file changes": "Canlı: dosya değişince yeniden oluştur", "Advanced": "Gelişmiş",
+    "+ New drawing": "+ Yeni çizim", "Start an empty drawing in the gate editor": "Kapı editöründe boş bir çizim başlat",
+    "More": "Diğer", "Light / dark theme": "Açık / koyu tema", "Designs": "Tasarımlar",
+    "Click a file, a file list (.f) or a folder's “Open” to view it; drawings open in the gate editor with “✎ Edit”.":
+      "Görüntülemek için bir dosyaya, dosya listesine (.f) ya da klasörün “Aç” düğmesine tıkla; çizimler “✎ Düzenle” ile kapı editöründe açılır.",
+    "Advanced: several files, top module, options": "Gelişmiş: birden çok dosya, top modül, seçenekler",
+    "Several files": "Birden çok dosya", "Clear": "Temizle", "Top module": "Top modül", "Start flattened": "Düzleştirilmiş aç",
     "Include folders": "Include klasörleri", "Defines": "Define'lar", "Frontend": "Frontend",
-    "▶ Open viewer": "▶ Görüntüleyiciyi aç", "⏱ Timing report": "⏱ Zamanlama raporu", "◇ List FSMs": "◇ FSM'leri listele",
-    "Viewers": "Görüntüleyiciler", "Toggle light/dark theme": "Açık / koyu tema",
-    "Clock period, e.g. 2ns, 500ps, 250MHz": "Saat periyodu, ör. 2ns, 500ps, 250MHz",
-    "Auto": "Otomatik", "Auto ({top})": "Otomatik ({top})", "{n} file(s) selected": "{n} dosya seçili",
-    "Nothing selected — tick files or a .f file list": "Hiçbir şey seçilmedi — dosyaları ya da bir .f dosya listesini işaretle",
-    "file list": "dosya listesi", "header": "header", "{n} HDL files": "{n} HDL dosyası", "No HDL files in this folder.": "Bu klasörde HDL dosyası yok.",
-    "Building…": "Oluşturuluyor…", "Looking for top modules…": "Top modüller aranıyor…", "Done.": "Tamam.",
-    "Open": "Aç", "Rebuild": "Yeniden oluştur", "Download": "İndir", "live": "canlı", "built {n}×": "{n}× oluşturuldu",
-    "The browser blocked the new tab — click Open below.": "Tarayıcı yeni sekmeyi engelledi — aşağıdaki Aç'a tıkla.",
-    "Select files first.": "Önce dosya seç.", "✎ Gate editor": "✎ Kapı editörü",
-    "Draw a circuit from gates and turn it into Verilog": "Kapılardan devre çiz ve Verilog'a çevir", "Use this folder": "Bu klasörü kullan",
-    "Select this folder's .f file list, or all its source files": "Bu klasörün .f dosya listesini, yoksa tüm kaynak dosyalarını seç",
+    "Open the selected files": "Seçili dosyaları aç",
+    "Tick files in the list to open them together. Include folders, defines and the frontend apply to every design opened here.":
+      "Birlikte açmak için listedeki dosyaları işaretle. Include klasörleri, define'lar ve frontend buradan açılan her tasarıma uygulanır.",
+    "Recently opened": "Son açılanlar", "Nothing opened yet.": "Henüz bir şey açılmadı.",
+    "Open": "Aç", "✎ Edit": "✎ Düzenle", "drawing": "çizim", "file list": "dosya listesi", "header": "header",
+    "{n} HDL files": "{n} HDL dosyası", "No HDL files in this folder.": "Bu klasörde HDL dosyası yok.",
+    "{n} file(s) ticked": "{n} dosya işaretli", "none ticked": "işaretli dosya yok", "Auto": "Otomatik", "Auto ({top})": "Otomatik ({top})",
+    "Looking for top modules…": "Top modüller aranıyor…", "Opening {name}…": "{name} açılıyor…", "Tick files first.": "Önce dosya işaretle.",
+    "Open in the gate editor": "Kapı editöründe aç", "Open the folder as one design (its .f file list or all its sources)":
+      "Klasörü tek tasarım olarak aç (.f dosya listesi ya da tüm kaynakları)",
+    "just now": "az önce", "{n} min ago": "{n} dk önce", "{n} h ago": "{n} sa önce", "{n} d ago": "{n} gün önce",
+    "viewer": "görüntüleyici", "editor": "editör",
   };
   let LANG = "en";
-  try {
-    const st = localStorage.getItem("veriview-lang");
-    LANG = (st || navigator.language || "").toLowerCase().startsWith("tr") ? "tr" : "en";
-  } catch (e) {}
+  try { LANG = ((localStorage.getItem("veriview-lang") || navigator.language || "") + "").toLowerCase().startsWith("tr") ? "tr" : "en"; } catch (e) {}
   const _t = (s, v) => { let o = LANG === "tr" && TR[s] !== undefined ? TR[s] : s; if (v) for (const [k, x] of Object.entries(v)) o = o.split(`{${k}}`).join(String(x)); return o; };
   document.documentElement.lang = LANG;
   for (const el of document.querySelectorAll("[data-t]")) el.textContent = _t(el.textContent.trim());
   for (const el of document.querySelectorAll("[title]")) el.title = _t(el.title);
   $("version").textContent = "v" + DATA.version;
   $("root").textContent = DATA.root;
-  $("btn-lang").textContent = LANG === "tr" ? "EN" : "TR";
-  $("btn-lang").onclick = () => { try { localStorage.setItem("veriview-lang", LANG === "tr" ? "en" : "tr"); } catch (e) {} location.reload(); };
+
+  // ---- menu: language, theme -------------------------------------------------------------
+  $("m-lang").textContent = LANG === "tr" ? "English" : "Türkçe";
+  $("menu-btn").onclick = (e) => { e.stopPropagation(); $("menu").hidden = !$("menu").hidden; };
+  document.addEventListener("click", () => { $("menu").hidden = true; });
+  $("m-lang").onclick = () => { try { localStorage.setItem("veriview-lang", LANG === "tr" ? "en" : "tr"); } catch (e) {} location.reload(); };
   const root = document.documentElement;
   try { const th = localStorage.getItem("veriview-theme"); if (th) root.dataset.theme = th; } catch (e) {}
-  $("btn-theme").onclick = () => {
+  $("m-theme").onclick = () => {
     const dark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
     root.dataset.theme = dark ? "light" : "dark";
     try { localStorage.setItem("veriview-theme", root.dataset.theme); } catch (e) {}
@@ -178,92 +171,109 @@ const DATA = /*__LAUNCHER_DATA__*/null;
   };
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  // ---- settings (remembered) ---------------------------------------------------------
-  const KEY = "veriview-launcher1:" + DATA.root;
+  // ---- settings (remembered per folder) ----------------------------------------------------
+  const KEY = "veriview-launcher2:" + DATA.root;
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) {}
-  const sel = new Set(saved.selected || []);
+  const ticked = new Set(saved.ticked || []);
   let curDir = saved.dir || "";
-  if (saved.lang) $("lang").value = saved.lang;
-  if (saved.stages) for (const c of document.querySelectorAll(".stage")) c.checked = saved.stages.includes(c.value);
-  for (const k of ["flatten", "live"]) if (k in saved) $(k).checked = saved[k];
-  for (const k of ["incdirs", "defines", "frontend", "period"]) if (saved[k]) $(k).value = saved[k];
+  $("flatten").checked = !!saved.flatten;
+  for (const k of ["incdirs", "defines", "frontend"]) if (saved[k]) $(k).value = saved[k];
+  if (saved.adv) $("adv").open = true;
   const save = () => {
     try {
-      localStorage.setItem(KEY, JSON.stringify({ selected: [...sel], dir: curDir, top: $("top").value, lang: $("lang").value,
-        stages: [...document.querySelectorAll(".stage")].filter((c) => c.checked).map((c) => c.value),
-        flatten: $("flatten").checked, live: $("live").checked, incdirs: $("incdirs").value,
-        defines: $("defines").value, frontend: $("frontend").value, period: $("period").value }));
+      localStorage.setItem(KEY, JSON.stringify({ ticked: [...ticked], dir: curDir, top: $("top").value, flatten: $("flatten").checked,
+        incdirs: $("incdirs").value, defines: $("defines").value, frontend: $("frontend").value, adv: $("adv").open }));
     } catch (e) {}
   };
   for (const el of document.querySelectorAll("select, input")) el.addEventListener("change", save);
+  $("adv").addEventListener("toggle", () => { save(); loadDir(curDir); });
 
-  // ---- folder browser ------------------------------------------------------------------
-  let firstLoad = !saved.selected;
+  // ---- opening (same tab: the browser's Back button comes back here) -----------------------
+  const list = (v) => v.split(/[,\s]+/).filter(Boolean);
+  function viewUrl(files, top) {
+    const q = new URLSearchParams();
+    for (const f of files) q.append("f", f);
+    if (top) q.set("top", top);
+    if ($("adv").open && $("flatten").checked) q.set("flat", "1");
+    for (const d of list($("incdirs").value)) q.append("I", d);
+    for (const d of list($("defines").value)) q.append("D", d);
+    if ($("frontend").value !== "auto") q.set("fe", $("frontend").value);
+    return "/view?" + q.toString();
+  }
+  function go(url, name) {
+    $("busy-msg").textContent = _t("Opening {name}…", { name });
+    $("busy").hidden = false;
+    location.href = url;
+  }
+  window.addEventListener("pageshow", () => { $("busy").hidden = true; });   // back from a design
+  $("new").onclick = () => go("/editor?new=1", _t("editor"));
+
+  // ---- folder listing ----------------------------------------------------------------------
   async function loadDir(dir) {
     const r = await api("/api/list", { dir });
-    if (r.error) { if (dir) return loadDir(""); out(r.error, true); return; }
+    if (r.error) { if (dir) return loadDir(""); $("err").textContent = r.error; return; }
     curDir = r.dir; save();
+    const adv = $("adv").open;
     const cr = $("crumbs"); cr.textContent = "";
     const parts = r.dir ? r.dir.split("/") : [];
     const mk = (label, target) => { const a = document.createElement("a"); a.textContent = label; a.onclick = () => loadDir(target); cr.append(a); };
     mk(DATA.root.split(/[\\/]/).pop() || "/", "");
     parts.forEach((p, i) => { const s = document.createElement("span"); s.className = "sep"; s.textContent = "/"; cr.append(s); mk(p, parts.slice(0, i + 1).join("/")); });
     const ul = $("files"); ul.textContent = "";
-    if (parts.length) {
-      const li = document.createElement("li"); li.className = "dir";
-      li.innerHTML = `<span>⬑</span><span class="name">..</span>`;
-      li.onclick = () => loadDir(parts.slice(0, -1).join("/")); ul.append(li);
-    }
-    for (const d of r.dirs) {
-      const li = document.createElement("li"); li.className = "dir";
-      li.innerHTML = `<span>📁</span><span class="name">${esc(d.name)}</span><span class="tag">${esc(_t("{n} HDL files", { n: d.count }))}</span>`;
-      li.onclick = () => loadDir(d.path); ul.append(li);
-    }
-    const useFolder = () => {
-      // a sensible selection: the folder's only file list, otherwise every source file
-      const lists = r.files.filter((f) => f.kind === "list");
-      sel.clear();
-      for (const f of (lists.length === 1 ? lists : r.files.filter((f) => f.kind === "source"))) sel.add(f.path);
+    const row = (ico, name, tagText, onClick, cls = "go") => {
+      const li = document.createElement("li"); li.className = cls;
+      li.innerHTML = `<span class="ico">${ico}</span><span class="name">${esc(name)}</span>` + (tagText ? `<span class="tag">${esc(tagText)}</span>` : "");
+      if (onClick) li.onclick = onClick;
+      ul.append(li);
+      return li;
     };
-    $("use-dir").disabled = !r.files.length;
-    $("use-dir").onclick = () => { useFolder(); loadDir(curDir); };
-    if (firstLoad && r.files.length) { useFolder(); firstLoad = false; }
-    for (const f of r.files) {
-      const li = document.createElement("li");
-      const lab = document.createElement("label");
-      const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = sel.has(f.path);
-      cb.onchange = () => { if (cb.checked) sel.add(f.path); else sel.delete(f.path); selChanged(); };
-      const nm = document.createElement("span"); nm.className = "name"; nm.textContent = f.name;
-      lab.append(cb, nm);
-      if (f.kind !== "source") { const tg = document.createElement("span"); tg.className = "tag"; tg.textContent = _t(f.kind === "list" ? "file list" : "header"); lab.append(tg); }
-      li.append(lab); ul.append(li);
+    const btn = (li, label, title, fn) => {
+      const b = document.createElement("button"); b.className = "btn small"; b.textContent = label; if (title) b.title = title;
+      b.onclick = (e) => { e.stopPropagation(); fn(); };
+      li.append(b);
+    };
+    if (parts.length) row("⬑", "..", "", () => loadDir(parts.slice(0, -1).join("/")));
+    for (const d of r.dirs) {
+      const li = row("📁", d.name, _t("{n} HDL files", { n: d.count }), () => loadDir(d.path));
+      btn(li, _t("Open"), _t("Open the folder as one design (its .f file list or all its sources)"), () => go(viewUrl([d.path]), d.name));
     }
-    if (!r.dirs.length && !r.files.length) ul.innerHTML = `<li class="muted">${esc(_t("No HDL files in this folder."))}</li>`;
-    selChanged(false);
+    for (const f of r.files) {
+      let li;
+      if (f.kind === "header") li = row("·", f.name, _t("header"), null, "off");
+      else if (f.kind === "drawing") li = row("✎", f.name, _t("drawing"), () => go("/editor?file=" + encodeURIComponent(f.path), f.name));
+      else {
+        li = row(f.kind === "list" ? "☰" : "📄", f.name, f.kind === "list" ? _t("file list") : f.drawing ? _t("drawing") : "",
+          () => go(viewUrl([f.path]), f.name));
+        if (f.drawing) btn(li, _t("✎ Edit"), _t("Open in the gate editor"), () => go("/editor?file=" + encodeURIComponent(f.drawing), f.name));
+      }
+      if (adv && f.kind !== "header" && f.kind !== "drawing") {
+        const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = ticked.has(f.path);
+        cb.onclick = (e) => e.stopPropagation();
+        cb.onchange = () => { if (cb.checked) ticked.add(f.path); else ticked.delete(f.path); tickChanged(); };
+        li.prepend(cb);
+      }
+    }
+    if (!r.dirs.length && !r.files.length) ul.innerHTML = `<li class="off">${esc(_t("No HDL files in this folder."))}</li>`;
+    tickChanged(false);
   }
+
+  // ---- advanced: several files + top module ---------------------------------------------
   let candTimer = null, candSeq = 0;
-  function selChanged(refresh = true) {
-    $("sel-info").textContent = sel.size ? _t("{n} file(s) selected", { n: sel.size }) : _t("Nothing selected — tick files or a .f file list");
-    $("sel-info").className = sel.size ? "" : "err";
+  function tickChanged(refresh = true) {
+    $("sel-info").textContent = ticked.size ? _t("{n} file(s) ticked", { n: ticked.size }) : _t("none ticked");
+    $("open-sel").disabled = !ticked.size;
     save();
     clearTimeout(candTimer);
-    candTimer = setTimeout(loadCandidates, refresh ? 350 : 0);
+    if ($("adv").open) candTimer = setTimeout(loadCandidates, refresh ? 350 : 0);
   }
-  $("sel-clear").onclick = () => { sel.clear(); loadDir(curDir); };
-
-  // ---- top module candidates -----------------------------------------------------------
-  const common = () => ({
-    files: [...sel], top: $("top").value || null, frontend: $("frontend").value,
-    incdirs: $("incdirs").value.split(/[,\s]+/).filter(Boolean), defines: $("defines").value.split(/[,\s]+/).filter(Boolean),
-  });
+  $("sel-clear").onclick = () => { ticked.clear(); loadDir(curDir); };
   async function loadCandidates() {
-    const top = $("top");
-    const want = top.value || saved.top || "";
-    if (!sel.size) { top.innerHTML = `<option value="">${esc(_t("Auto"))}</option>`; return; }
+    const top = $("top"), want = top.value || saved.top || "";
+    if (!ticked.size) { top.innerHTML = `<option value="">${esc(_t("Auto"))}</option>`; return; }
     const seq = ++candSeq;
-    $("top-busy").innerHTML = `<span class="spinner"></span> <span class="muted">${esc(_t("Looking for top modules…"))}</span>`;
-    const r = await api("/api/candidates", { ...common(), top: null });
+    $("top-busy").innerHTML = `<span class="spinner"></span><span class="muted">${esc(_t("Looking for top modules…"))}</span>`;
+    const r = await api("/api/candidates", { files: [...ticked], frontend: $("frontend").value, incdirs: list($("incdirs").value), defines: list($("defines").value) });
     if (seq !== candSeq) return;
     $("top-busy").textContent = "";
     top.textContent = "";
@@ -272,63 +282,33 @@ const DATA = /*__LAUNCHER_DATA__*/null;
     top.append(auto);
     for (const c of r.candidates || []) { const o = document.createElement("option"); o.value = o.textContent = c; top.append(o); }
     top.value = (r.candidates || []).includes(want) ? want : "";
-    if (r.error) out(r.error, true);
+    $("err").textContent = r.error || "";
   }
+  $("open-sel").onclick = () => {
+    if (!ticked.size) { $("err").textContent = _t("Tick files first."); return; }
+    go(viewUrl([...ticked], $("top").value), $("top").value || [...ticked][0]);
+  };
 
-  // ---- actions ---------------------------------------------------------------------------
-  function out(text, isErr = false) { const o = $("out"); o.textContent = text; o.className = "out" + (isErr ? " err" : ""); }
-  const busy = (on) => { for (const id of ["go", "go-timing", "go-fsm"]) $(id).disabled = on; if (on) out(_t("Building…")); };
-  const viewers = [];
+  // ---- recently opened (written by the viewer and the editor) -------------------------------
+  function ago(t) {
+    const m = Math.round((Date.now() - t) / 60000);
+    return m < 1 ? _t("just now") : m < 60 ? _t("{n} min ago", { n: m }) : m < 1440 ? _t("{n} h ago", { n: Math.round(m / 60) }) : _t("{n} d ago", { n: Math.round(m / 1440) });
+  }
   function renderRecent() {
-    $("recent-box").hidden = !viewers.length;
-    const tb = $("recent"); tb.textContent = "";
-    for (const v of viewers) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td><b>${esc(v.name)}</b> ${v.live ? `<span class="tag">${esc(_t("live"))}</span>` : ""} <span class="muted">${esc(_t("built {n}×", { n: v.version }))}</span>${v.error ? ` <span class="err">✕</span>` : ""}</td>`;
-      const td = document.createElement("td"); td.style.textAlign = "right";
-      const b = (label, fn) => { const x = document.createElement("button"); x.className = "btn small"; x.textContent = _t(label); x.onclick = fn; td.append(x, " "); };
-      b("Open", () => window.open(v.url, "_blank"));
-      b("Rebuild", async () => { busy(true); const r = await api("/api/rebuild", { id: v.id }); busy(false); Object.assign(v, r); showLog(r); renderRecent(); });
-      b("Download", () => { location.href = v.url + "?download=1"; });
-      tr.append(td); tb.append(tr);
+    let items = [];
+    try { items = JSON.parse(localStorage.getItem("veriview-recent:" + DATA.root) || "[]"); } catch (e) {}
+    const ul = $("recent"); ul.textContent = "";
+    for (const it of items) {
+      const li = document.createElement("li");
+      li.innerHTML = `<a href="${esc(it.url)}"><span>${it.kind === "editor" ? "✎" : "👁"}</span><span>${esc(it.title)}</span>` +
+        `<span class="tag">${esc(_t(it.kind === "editor" ? "editor" : "viewer"))}</span><span class="when">${esc(ago(it.time))}</span></a>`;
+      li.querySelector("a").onclick = (e) => { e.preventDefault(); go(it.url, it.title); };
+      ul.append(li);
     }
+    if (!items.length) ul.innerHTML = `<li class="empty">${esc(_t("Nothing opened yet."))}</li>`;
   }
-  const showLog = (r) => out([...(r.log || []), r.error ? "\n" + r.error : "", r.error ? "" : _t("Done.")].filter(Boolean).join("\n"), !!r.error);
-  $("go").onclick = async () => {
-    if (!sel.size) { out(_t("Select files first."), true); return; }
-    const tab = window.open("about:blank", "_blank");   // open synchronously: popup blockers allow it
-    busy(true);
-    const r = await api("/api/build", {
-      ...common(), lang: $("lang").value, flatten: $("flatten").checked, live: $("live").checked,
-      stages: [...document.querySelectorAll(".stage")].filter((c) => c.checked).map((c) => c.value),
-    });
-    busy(false);
-    showLog(r);
-    if (r.error && !r.version) { if (tab) tab.close(); return; }
-    viewers.unshift({ ...r });
-    renderRecent();
-    if (tab) tab.location = r.url; else out($("out").textContent + "\n" + _t("The browser blocked the new tab — click Open below."), true);
-  };
-  const report = async (kind) => {
-    if (!sel.size) { out(_t("Select files first."), true); return; }
-    busy(true);
-    const r = await api("/api/report", { ...common(), kind, period: $("period").value });
-    busy(false);
-    out(r.error ? [...(r.log || []), r.error].join("\n") : r.text, !!r.error);
-  };
-  $("go-timing").onclick = () => report("timing");
-  $("go-fsm").onclick = () => report("fsm");
-  setInterval(async () => {   // keep live viewers' build counters / errors up to date
-    let changed = false;
-    for (const v of viewers.filter((x) => x.live)) {
-      try {
-        const s = await (await fetch(`/api/status/${v.id}`, { cache: "no-store" })).json();
-        if (s.version !== v.version || s.error !== v.error) { Object.assign(v, s); changed = true; }
-      } catch (e) {}
-    }
-    if (changed) renderRecent();
-  }, 2000);
-
+  renderRecent();
+  window.addEventListener("pageshow", renderRecent);
   loadDir(curDir);
 })();
 </script>

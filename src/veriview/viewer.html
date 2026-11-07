@@ -35,7 +35,14 @@
     grid-area: head; display: flex; align-items: center; gap: 12px; padding: 8px 12px;
     background: var(--panel); border-bottom: 1px solid var(--border); min-width: 0;
   }
-  header .brand { font-weight: 600; white-space: nowrap; }
+  header .brand { font-weight: 600; white-space: nowrap; color: inherit; text-decoration: none; }
+  a.brand[href]:hover { color: var(--accent); }
+  .mode .btn { padding: 4px 12px; }
+  .menu { position: relative; }
+  .menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 230px; background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); }
+  .menu-pop .btn { display: block; width: 100%; text-align: left; border: 0; padding: 6px 10px; }
+  .menu-pop .btn:hover:not(:disabled) { background: var(--accent-soft); }
   header .brand small { color: var(--muted); font-weight: 400; margin-left: 4px; }
   nav.crumbs { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; }
   nav.crumbs button {
@@ -236,16 +243,26 @@
 </head>
 <body>
 <header>
-  <div class="brand">VeriView<small id="version"></small></div>
+  <a class="brand" id="brand" title="Start page: all designs of the folder">VeriView<small id="version"></small></a>
+  <div class="seg mode" id="mode" hidden role="group" aria-label="Mode">
+    <button class="btn" id="mode-view" aria-pressed="true" title="Look at the design: schematic, simulation, timing, FSMs (read-only)">👁 View</button>
+    <button class="btn" id="mode-edit" aria-pressed="false" title="Change the design">✎ Edit</button>
+  </div>
   <nav class="crumbs" id="crumbs" aria-label="Hierarchy path"></nav>
   <div class="tools">
     <button class="btn" id="btn-up" title="Go up one level (Backspace)">↑ Up</button>
     <button class="btn" id="btn-code" aria-pressed="false" title="Show the source code: click a cell to see its line, click a line to see its cells">&lt;/&gt; Code</button>
-    <button class="btn" id="btn-editor" title="Open this module in the gate editor (as gates and flip-flops)">✎ Editor</button>
     <button class="btn" id="btn-fit" title="Fit to window (F)">Fit</button>
-    <button class="btn" id="btn-svg" title="Download this schematic as SVG">SVG</button>
-    <button class="btn" id="btn-lang" title="Language / Dil">TR</button>
-    <button class="btn" id="btn-theme" title="Toggle light/dark theme">◐</button>
+    <div class="menu">
+      <button class="btn" id="btn-more" title="More" aria-haspopup="true">⋯</button>
+      <div class="menu-pop" id="more" hidden>
+        <button class="btn" id="btn-editor" title="Open this module in the gate editor (as gates and flip-flops)">⇄ Draw as gates in the editor</button>
+        <button class="btn" id="btn-svg" title="Download this schematic as SVG">⤓ Schematic as SVG</button>
+        <button class="btn" id="btn-html" title="Save this viewer as a single HTML file (works without VeriView)">⤓ Viewer as HTML</button>
+        <button class="btn" id="btn-lang" title="Language / Dil">Türkçe</button>
+        <button class="btn" id="btn-theme" title="Toggle light/dark theme">◐ Light / dark</button>
+      </div>
+    </div>
   </div>
 </header>
 <div class="bar">
@@ -331,7 +348,6 @@
     <select id="code-file" aria-label="Source file"></select>
     <span id="code-note" class="note"></span>
     <span id="code-msg"></span>
-    <button class="btn" id="code-edit" title="Edit this file: saving rebuilds the schematic">✎ Edit</button>
     <button class="btn" id="code-save" hidden title="Save and rebuild (Ctrl+S)">Save</button>
     <button class="btn" id="code-cancel" hidden title="Stop editing (unsaved changes are dropped)">Cancel</button>
   </div>
@@ -459,8 +475,15 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     " (it may have been optimized away — try the RTL view)": " (optimize edilip silinmiş olabilir — RTL görünümünü dene)",
     "{c} cell(s), {n} net(s) · Esc to clear": "{c} hücre, {n} net · temizlemek için Esc",
     "state {s}: {n} line(s)": "durum {s}: {n} satır",
-    "✎ Edit": "✎ Düzenle", "Save": "Kaydet", "Cancel": "Vazgeç",
-    "Edit this file: saving rebuilds the schematic": "Bu dosyayı düzenle: kaydedince şema yeniden üretilir",
+    "✎ Edit": "✎ Düzenle", "Save": "Kaydet", "Cancel": "Vazgeç", "👁 View": "👁 Görüntüle", "Mode": "Mod",
+    "Look at the design: schematic, simulation, timing, FSMs (read-only)": "Tasarımı incele: şema, simülasyon, zamanlama, FSM (salt okunur)",
+    "Change the design": "Tasarımı değiştir", "Change the drawing in the gate editor": "Çizimi kapı editöründe değiştir",
+    "Edit the source code (the code panel opens; Ctrl+S saves and rebuilds)": "Kaynak kodu düzenle (kod paneli açılır; Ctrl+S kaydeder ve yeniden üretir)",
+    "Start page: all designs of the folder": "Başlangıç sayfası: klasördeki tüm tasarımlar", "More": "Diğer",
+    "⇄ Draw as gates in the editor": "⇄ Editörde kapı çizimi olarak aç", "⤓ Schematic as SVG": "⤓ Şemayı SVG olarak indir",
+    "⤓ Viewer as HTML": "⤓ Görüntüleyiciyi HTML olarak indir",
+    "Save this viewer as a single HTML file (works without VeriView)": "Bu görüntüleyiciyi tek bir HTML dosyası olarak kaydet (VeriView olmadan çalışır)",
+    "◐ Light / dark": "◐ Açık / koyu",
     "Save and rebuild (Ctrl+S)": "Kaydet ve yeniden üret (Ctrl+S)",
     "Stop editing (unsaved changes are dropped)": "Düzenlemeyi bırak (kaydedilmemiş değişiklikler silinir)",
     "editing {f} · Ctrl+S saves and rebuilds": "{f} düzenleniyor · Ctrl+S kaydeder ve yeniden üretir",
@@ -470,9 +493,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     "saved {f}": "{f} kaydedildi",
     "Editing needs the launcher: run `veriview --ui` in the design folder and open the design from there.":
       "Düzenleme için başlatıcı gerekli: tasarım klasöründe `veriview --ui` çalıştırıp tasarımı oradan aç.",
-    "✎ Editor": "✎ Editör",
     "Open this module in the gate editor (as gates and flip-flops)": "Bu modülü kapı editöründe aç (kapılar ve flip-floplar olarak)",
-    "Open this module in the gate editor (needs the launcher: veriview --ui)": "Bu modülü kapı editöründe aç (başlatıcı gerekli: veriview --ui)",
     // FSM
     "Also in sub-modules: ": "Alt modüllerde de: ", "State machines in sub-modules: ": "Alt modüllerdeki durum makineleri: ",
     "No state machine in this module.": "Bu modülde durum makinesi yok.",
@@ -565,7 +586,10 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     if (s.timing && !s.sim) q.set("timing", "1");
     if (s.code) q.set("code", "1");
     if (s.fsm) q.set("fsm", "1");
-    location.hash = "/" + s.path.map(encodeURIComponent).join("/") + "?" + q.toString();
+    const hash = "#/" + s.path.map(encodeURIComponent).join("/") + "?" + q.toString();
+    if (s.path.join("/") === state.path.join("/")) {   // a toggle: replace, so Back leaves the design instead
+      history.replaceState(null, "", hash); readHash(); show();
+    } else location.hash = hash;
   };
 
   // ---- theme -----------------------------------------------------------------
@@ -1376,10 +1400,11 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     if (!on) { editing.dirty = false; $("code-err").hidden = true; }
     window.__veriviewHold = on && editing.dirty;
     $("code-body").hidden = on; $("code-area").hidden = !on;
-    $("code-save").hidden = $("code-cancel").hidden = !on; $("code-edit").hidden = on;
+    $("code-save").hidden = $("code-cancel").hidden = !on;
     $("code-file").disabled = on;
+    $("mode-view").setAttribute("aria-pressed", String(!on)); $("mode-edit").setAttribute("aria-pressed", String(on));
   }
-  $("code-edit").onclick = () => {
+  function startCodeEdit() {
     if (!SERVER) return needServer();
     const f = code.file || Object.keys(SOURCES)[0];
     if (!f) return;
@@ -1391,12 +1416,40 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     ta.scrollTop = top;
     ta.focus({ preventScroll: true });
     $("code-msg").textContent = _t("editing {f} · Ctrl+S saves and rebuilds", { f: f.split("/").pop() });
-  };
-  $("code-cancel").onclick = () => {
-    if (editing.dirty && !confirm(_t("Drop the unsaved changes?"))) return;
+  }
+  const stopCodeEdit = () => {
+    if (editing.dirty && !confirm(_t("Drop the unsaved changes?"))) return false;
     setEditing(false);
     $("code-msg").textContent = "";
+    return true;
   };
+  $("code-cancel").onclick = stopCodeEdit;
+  // View / Edit: a drawn design opens in the gate editor (with its drawing), code is edited in the code panel
+  if (SERVER) {
+    $("mode").hidden = false;
+    $("brand").href = SERVER.home || "/";
+    if (SERVER.drawing) $("mode-edit").title = _t("Change the drawing in the gate editor");
+    else if (!Object.keys(SOURCES).length) $("mode-edit").disabled = true;
+    else $("mode-edit").title = _t("Edit the source code (the code panel opens; Ctrl+S saves and rebuilds)");
+    try {   // for the start page's "Recently opened"
+      const k = "veriview-recent:" + SERVER.root, url = location.pathname + location.search;
+      const items = JSON.parse(localStorage.getItem(k) || "[]").filter((x) => x.url !== url);
+      items.unshift({ url, title: SERVER.title || DATA.views[DATA.defaultStage].top, kind: "viewer", time: Date.now() });
+      localStorage.setItem(k, JSON.stringify(items.slice(0, 10)));
+    } catch (e) {}
+  }
+  $("mode-edit").onclick = () => {
+    if (editing.on) return;
+    if (SERVER && SERVER.drawing) { location.href = `${SERVER.editor}?file=${encodeURIComponent(SERVER.drawing)}`; return; }
+    if (!state.code) { pendingEdit = true; go({ code: true }); return; }
+    startCodeEdit();
+  };
+  let pendingEdit = false;
+  $("mode-view").onclick = () => { if (editing.on) stopCodeEdit(); };
+  $("btn-more").onclick = (e) => { e.stopPropagation(); $("more").hidden = !$("more").hidden; };
+  document.addEventListener("click", (e) => { if (!e.target.closest || !e.target.closest("#more")) $("more").hidden = true; });
+  $("btn-html").hidden = !SERVER;
+  $("btn-html").onclick = () => { location.href = `/view/${SERVER.build}?download=1`; };
   $("code-area").addEventListener("input", () => { editing.dirty = true; window.__veriviewHold = true; });
   $("code-area").addEventListener("keydown", (e) => {
     e.stopPropagation();   // the viewer's shortcuts (F, Backspace, Esc) must not fire while typing
@@ -1449,7 +1502,10 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   $("btn-editor").onclick = () => {
     if (!SERVER) return needServer();
     const m = moduleOf(state.path), label = (mods()[m] || {}).label || m;
-    window.open(`${SERVER.editor}?build=${encodeURIComponent(SERVER.build)}&module=${encodeURIComponent(label)}`, "_blank");
+    const q = new URLSearchParams();
+    for (const f of SERVER.files || []) q.append("f", f);
+    q.set("module", label);
+    location.href = `${SERVER.editor}?${q.toString()}`;
   };
   window.addEventListener("beforeunload", (e) => { if (editing.dirty) { e.preventDefault(); e.returnValue = ""; } });
 
@@ -1736,7 +1792,9 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     if (state.code) {
       codeShowModule(mod);
       if (code.pending) { const pnd = code.pending; code.pending = null; codeLineClick(pnd.file, pnd.line); }
+      if (typeof pendingEdit !== "undefined" && pendingEdit) { pendingEdit = false; setTimeout(startCodeEdit); }
     }
+    if (!state.code && editing.on) setEditing(false);
     const inst = state.path.length ? state.path[state.path.length - 1] : name;
     document.title = `${inst} · ${mod.label} · VeriView`;
   };
@@ -1994,7 +2052,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   });
 
   translateStatic();
-  $("btn-lang").textContent = LANG === "tr" ? "EN" : "TR";
+  $("btn-lang").textContent = LANG === "tr" ? "English" : "Türkçe";
   $("btn-lang").title = LANG === "tr" ? "Switch to English" : "Türkçe'ye geç";
   $("btn-lang").onclick = () => {
     try { localStorage.setItem("veriview-lang", LANG === "tr" ? "en" : "tr"); } catch (e) {}
@@ -2003,7 +2061,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   window.addEventListener("hashchange", () => { readHash(); show(); });
   readHash();
   show();
-  if (!SERVER) { $("btn-editor").title = _t("Open this module in the gate editor (needs the launcher: veriview --ui)"); }
+  if (!SERVER) $("btn-editor").hidden = true;   // a standalone HTML file: no editor to go to
   // back from a save in the code panel: show the edited file where it was
   try {
     const back = JSON.parse(sessionStorage.getItem("veriview-code-reopen") || "null");

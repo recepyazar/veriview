@@ -22,6 +22,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs
 
 from . import __version__, log
 from .log import VeriViewError
@@ -31,6 +32,12 @@ from .watch import LIVE_RELOAD_JS, snapshot, watched_files
 TEMPLATE = Path(__file__).with_name("launcher.html")
 EDITOR = Path(__file__).with_name("editor.html")
 HDL_SUFFIXES = (".v", ".sv", ".svh", ".vh", ".f")
+DRAWING = ".veriview.json"   # a gate-editor drawing, saved next to the Verilog generated from it
+
+
+def drawing_of(path: Path) -> Path:
+    """counter.v -> counter.veriview.json (the drawing the file was generated from, if any)."""
+    return path.with_name(path.name.rsplit(".", 1)[0] + DRAWING)
 HIDDEN_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", "build", "dist"}
 
 
@@ -53,6 +60,7 @@ class Launcher:
     def __init__(self, root: Path):
         self.root = root.resolve()
         self.builds: dict[str, Build] = {}
+        self.by_key: dict[str, str] = {}   # /view?f=... -> build id (one build per file set and options)
         self.lock = threading.Lock()   # one Yosys run at a time (logs and stdout are global)
 
     # --- helpers -------------------------------------------------------------------------
@@ -74,10 +82,18 @@ class Launcher:
             if e.is_dir():
                 n = sum(1 for _ in e.rglob("*") if _.suffix in HDL_SUFFIXES)
                 if n:
-                    dirs.append({"path": r, "name": e.name, "count": n})
+                    dirs.append({"path": r, "name": e.name, "count": n,
+                                 "lists": sorted(x.relative_to(self.root).as_posix() for x in e.glob("*.f"))})
             elif e.suffix in HDL_SUFFIXES:
-                files.append({"path": r, "name": e.name, "kind": "list" if e.suffix == ".f" else
-                              ("header" if e.suffix in (".svh", ".vh") else "source"), "size": e.stat().st_size})
+                kind = "list" if e.suffix == ".f" else ("header" if e.suffix in (".svh", ".vh") else "source")
+                f = {"path": r, "name": e.name, "kind": kind, "size": e.stat().st_size}
+                if kind == "source" and drawing_of(e).is_file():
+                    f["drawing"] = drawing_of(e).relative_to(self.root).as_posix()
+                files.append(f)
+            elif e.name.endswith(DRAWING):
+                v = [e.with_name(e.name[:-len(DRAWING)] + x) for x in (".v", ".sv")]
+                if not any(x.is_file() for x in v):   # a drawing without its Verilog (yet)
+                    files.append({"path": r, "name": e.name, "kind": "drawing", "size": e.stat().st_size})
         rel_d = "" if d == self.root else d.relative_to(self.root).as_posix()
         return {"root": str(self.root), "dir": rel_d, "dirs": dirs, "files": files}
 
@@ -143,6 +159,64 @@ class Launcher:
             b.watcher.start()
         return self.status(b.id) | {"id": b.id, "url": f"/view/{b.id}"}
 
+    @staticmethod
+    def view_key(req: dict[str, Any]) -> str:
+        return json.dumps([req.get(k) or None for k in ("files", "top", "flatten", "incdirs", "defines", "frontend")])
+
+    def open_view(self, req: dict[str, Any]) -> Build:
+        """The (live) build for a file set and options: built on first use, then reused (/view?f=...)."""
+        key = self.view_key(req)
+        bid = self.by_key.get(key)
+        if bid and bid in self.builds:
+            b = self.builds[bid]
+            # changed since the last build (e.g. saved by the editor a moment ago): rebuild before showing it
+            if snapshot(watched_files(b.sources, b.inputs)) != getattr(b, "snap", None):
+                self._rebuild(b)
+            return b
+        r = self.build({**req, "live": True})
+        self.by_key[key] = r["id"]
+        return self.builds[r["id"]]
+
+    def view_info(self, b: Build) -> dict[str, Any]:
+        """What the viewer page needs to know about its server (editing, the drawing, going home)."""
+        info: dict[str, Any] = {"build": b.id, "editor": "/editor", "home": "/", "live": b.live, "root": str(self.root),
+                                "files": list(getattr(b, "req", {}).get("files", []))}
+        files = [self.safe(f) for f in info["files"]]
+        if len(files) == 1 and files[0].suffix in (".v", ".sv") and drawing_of(files[0]).is_file():
+            info["drawing"] = drawing_of(files[0]).relative_to(self.root).as_posix()
+        top = getattr(b, "req", {}).get("top")
+        info["title"] = top or (Path(info["files"][0]).name if len(info["files"]) == 1 else b.name)
+        return info
+
+    def load_drawing(self, req: dict[str, Any]) -> dict[str, Any]:
+        rel = str(req.get("path", ""))
+        if not rel.endswith(DRAWING):
+            raise VeriViewError("Not a drawing")
+        p = self.safe(rel)
+        d = json.loads(p.read_text(encoding="utf-8"))
+        if d.get("veriview") != "gate-editor" or not isinstance(d.get("nodes"), list):
+            raise VeriViewError(f"{rel} is not a VeriView drawing")
+        stem = p.name[:-len(DRAWING)]
+        verilog = next((x for x in (p.with_name(stem + e) for e in (".v", ".sv")) if x.is_file()), None)
+        return {"design": d, "path": rel,
+                "verilog": verilog.relative_to(self.root).as_posix() if verilog else None}
+
+    def save_drawing(self, req: dict[str, Any]) -> dict[str, Any]:
+        """Save a drawing: <stem>.v (the generated Verilog) + <stem>.veriview.json (the drawing)."""
+        rel = str(req.get("path", "")).strip()
+        if rel.endswith(DRAWING):
+            rel = rel[:-len(DRAWING)] + ".v"
+        if not rel.endswith((".v", ".sv")):
+            rel += ".v"
+        r = self.save({"path": rel, "text": req.get("text", ""), "overwrite": req.get("overwrite")})
+        if r.get("exists"):
+            return r
+        v = self.safe(r["path"])
+        design = req.get("design") or {}
+        drawing_of(v).write_text(json.dumps({"veriview": "gate-editor", "version": 1, **design}, indent=1),
+                                 encoding="utf-8")
+        return {"path": r["path"], "drawing": drawing_of(v).relative_to(self.root).as_posix()}
+
     def _rebuild(self, b: Build) -> None:
         from .cli import _build, prepare
         lines: list[str] = []
@@ -163,19 +237,16 @@ class Launcher:
         except Exception as e:  # never let a watcher thread die on an unexpected error
             b.error = f"{type(e).__name__}: {e}"
         b.log = lines[-200:]
+        b.snap = snapshot(watched_files(b.sources, b.inputs))
         b.attempt += 1
 
     def _watch(self, b: Build) -> None:
-        files = watched_files(b.sources, b.inputs)
-        snap = snapshot(files)
+        # compares with the state of the last build (b.snap), whoever made it (this loop, a save, opening it)
         while not b.stop.wait(0.5):
-            new = snapshot(files)
-            if new == snap:
+            if snapshot(watched_files(b.sources, b.inputs)) == getattr(b, "snap", None):
                 continue
             b.stop.wait(0.2)
             self._rebuild(b)
-            files = watched_files(b.sources, b.inputs)
-            snap = snapshot(files)
 
     def status(self, bid: str) -> dict[str, Any]:
         b = self.builds.get(bid)
@@ -243,17 +314,21 @@ class Launcher:
         from .filelist import collect_sources
         from .synth import Synthesizer
         from .to_editor import netlist_to_design
-        b = self.builds.get(str(req.get("id")))
-        if not b:
-            raise VeriViewError("Unknown build")
-        module = str(req.get("module") or "")
+        if req.get("files"):   # by file set (an /editor?from=... URL survives server restarts)
+            argv = self.argv_for({**req, "top": None}, "--html")
+        else:
+            b = self.builds.get(str(req.get("id")))
+            if not b:
+                raise VeriViewError("Unknown build")
+            argv = b.argv
+        module = str(req.get("module") or req.get("top") or "")
         if module.startswith("$paramod"):   # parameterized instance: the module with its default parameters
             module = module.split("\\")[1] if "\\" in module else module
         module = module.lstrip("\\") or None
         lines: list[str] = []
 
         def go() -> dict[str, Any]:
-            args, inputs, _ = prepare(b.argv)
+            args, inputs, _ = prepare(argv)
             sources = collect_sources(inputs, args.incdirs, args.defines)
             with tempfile.TemporaryDirectory(prefix="veriview.") as tmp:
                 out = Path(tmp) / "editor.json"
@@ -276,11 +351,39 @@ def page(launcher: Launcher) -> bytes:
     return TEMPLATE.read_text(encoding="utf-8").replace("/*__LAUNCHER_DATA__*/null", data).encode("utf-8")
 
 
-def editor_page() -> bytes:
-    data = json.dumps({"version": __version__, "launcher": True})
+def editor_page(root: str = "") -> bytes:
+    data = json.dumps({"version": __version__, "launcher": True, "root": root}).replace("<", "\\u003c")
     core = Path(__file__).with_name("editor_core.js").read_text(encoding="utf-8").replace("</", "<\\/")
     return (EDITOR.read_text(encoding="utf-8").replace("/*__EDITOR_CORE__*/", core, 1)
             .replace("/*__EDITOR_DATA__*/null", data).encode("utf-8"))
+
+
+ERROR_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>VeriView</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><style>
+body{font:14px/1.5 system-ui,sans-serif;margin:0;background:#f6f7f9;color:#1d232b}
+@media (prefers-color-scheme: dark){body{background:#111418;color:#e6e9ed}pre{background:#181c21!important}}
+header{padding:10px 16px;border-bottom:1px solid #8884}a{color:#2563eb}
+main{padding:16px;max-width:900px}pre{background:#fff;border:1px solid #8884;border-radius:8px;padding:10px;
+white-space:pre-wrap;font:12.5px/1.5 ui-monospace,Menlo,monospace}</style></head>
+<body><header><a href="/"><b>VeriView</b></a> &nbsp;·&nbsp; __TITLE__</header><main>
+<h3 data-tr="Tasarım oluşturulamadı.">The design could not be built.</h3><pre>__ERROR__</pre>
+<p data-tr="__HINT_TR__">__HINT__</p></main>
+<script>try{if(((localStorage.getItem("veriview-lang")||navigator.language)+"").toLowerCase().startsWith("tr"))
+for(const e of document.querySelectorAll("[data-tr]"))e.innerHTML=e.dataset.tr}catch(e){}</script></body></html>"""
+
+
+def error_page(message: str, info: dict[str, Any] | None, js: str = "") -> bytes:
+    import html as _h
+    if info:
+        hint = "Fix the file (in any text editor) and save: this page reloads by itself once the design builds."
+        hint_tr = ("Dosyayı (herhangi bir metin editöründe) düzeltip kaydet: "
+                   "tasarım oluşunca bu sayfa kendiliğinden yenilenir.")
+    else:
+        hint, hint_tr = '<a href="/">Back to the start page</a>', '<a href="/">Başlangıç sayfasına dön</a>'
+    page = (ERROR_PAGE.replace("__TITLE__", _h.escape(str((info or {}).get("title", ""))))
+            .replace("__ERROR__", _h.escape(message or "unknown error"))
+            .replace("__HINT_TR__", _h.escape(hint_tr)).replace("__HINT__", hint))
+    return (page.replace("</body>", js + "</body>", 1) if js else page).encode("utf-8")
 
 
 def make_handler(launcher: Launcher, allowed_hosts: set[str]):
@@ -308,27 +411,42 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
             if path in ("/", "/index.html"):
                 return self._send(200, "text/html; charset=utf-8", page(launcher))
             if path == "/editor":
-                return self._send(200, "text/html; charset=utf-8", editor_page())
+                return self._send(200, "text/html; charset=utf-8", editor_page(str(launcher.root)))
+            if path == "/view":
+                q = parse_qs(query)
+                req = {"files": q.get("f", []), "top": (q.get("top") or [None])[0], "flatten": q.get("flat") == ["1"],
+                       "incdirs": q.get("I", []), "defines": q.get("D", []), "frontend": (q.get("fe") or [None])[0]}
+                try:
+                    b = launcher.open_view(req)
+                except VeriViewError as e:
+                    return self._send(400, "text/html; charset=utf-8", error_page(str(e), None))
+                if not b.html.is_file():   # the first build failed: show why, reload once it builds
+                    js = LIVE_RELOAD_JS.replace("/__veriview/status", f"/api/status/{b.id}")
+                    return self._send(200, "text/html; charset=utf-8", error_page(b.error, launcher.view_info(b), js))
+                return self._viewer(b, query)
             if path.startswith("/view/"):
                 b = launcher.builds.get(path[len("/view/"):])
                 if not b or not b.html.is_file():
                     return self._send(404, "text/plain", b"no such viewer")
-                html = b.html.read_text(encoding="utf-8")
-                if "download=1" in query:
-                    return self._send(200, "text/html; charset=utf-8", html.encode("utf-8"),
-                                      {"Content-Disposition": f'attachment; filename="{b.name}.html"'})
-                info = json.dumps({"build": b.id, "editor": "/editor", "live": b.live})
-                html = html.replace("<head>", f"<head><script>window.VERIVIEW_SERVER = {info};</script>", 1)
-                if b.live:
-                    js = LIVE_RELOAD_JS.replace("/__veriview/status", f"/api/status/{b.id}")
-                    html = html.replace("</body>", js + "</body>", 1)
-                return self._send(200, "text/html; charset=utf-8", html.encode("utf-8"))
+                return self._viewer(b, query)
             if path.startswith("/api/status/"):
                 try:
                     return self._json(launcher.status(path[len("/api/status/"):]))
                 except VeriViewError as e:
                     return self._json({"error": str(e)}, 404)
             self._send(404, "text/plain", b"not found")
+
+        def _viewer(self, b: Build, query: str) -> None:
+            html = b.html.read_text(encoding="utf-8")
+            if "download=1" in query:
+                return self._send(200, "text/html; charset=utf-8", html.encode("utf-8"),
+                                  {"Content-Disposition": f'attachment; filename="{b.name}.html"'})
+            info = json.dumps(launcher.view_info(b)).replace("<", "\\u003c")
+            html = html.replace("<head>", f"<head><script>window.VERIVIEW_SERVER = {info};</script>", 1)
+            if b.live:
+                js = LIVE_RELOAD_JS.replace("/__veriview/status", f"/api/status/{b.id}")
+                html = html.replace("</body>", js + "</body>", 1)
+            return self._send(200, "text/html; charset=utf-8", html.encode("utf-8"))
 
         def do_POST(self) -> None:  # noqa: N802
             # custom header: forces a CORS preflight, which this server never answers -> no cross-site calls
@@ -354,9 +472,15 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
                     return self._json(launcher.save_source(req))
                 if route == "/api/to_editor":
                     return self._json(launcher.to_editor(req))
+                if route == "/api/drawing/load":
+                    return self._json(launcher.load_drawing(req))
+                if route == "/api/drawing/save":
+                    return self._json(launcher.save_drawing(req))
                 return self._json({"error": "unknown API"}, 404)
             except VeriViewError as e:
                 return self._json({"error": str(e)}, 400)
+            except OSError as e:
+                return self._json({"error": f"{type(e).__name__}: {e}"}, 400)
             except (ValueError, KeyError) as e:
                 return self._json({"error": f"bad request: {e}"}, 400)
 

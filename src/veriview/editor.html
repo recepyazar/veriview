@@ -79,6 +79,19 @@
   .inline-edit { position: absolute; z-index: 5; padding: 2px 6px; border: 2px solid var(--accent); border-radius: 6px;
     background: var(--panel); color: var(--text); font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; width: 130px; }
   .inline-edit.bad { border-color: var(--bad); }
+  /* simulation */
+  .wire.on { stroke: var(--ok); }
+  .wire.bus.on { stroke: var(--accent); }
+  .node.on .body { fill: color-mix(in srgb, var(--ok) 28%, var(--paper)); }
+  text.wval { fill: var(--accent); font: bold 11px ui-monospace, SFMono-Regular, Menlo, monospace; pointer-events: none; }
+  .node text.nval { fill: var(--ok); font: bold 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  body.sim .node.port-in { cursor: pointer; }
+  #simbar { position: absolute; left: 10px; top: 10px; z-index: 4; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 6px 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; font-size: 13px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12); max-width: calc(100% - 20px); }
+  #simbar select { padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+  #simbar .hint { color: var(--muted); font-size: 12px; }
+  #sim-cycle { color: var(--muted); min-width: 5em; }
   .rubber { fill: var(--accent); fill-opacity: 0.08; stroke: var(--accent); stroke-dasharray: 4 3; }
   #code { grid-area: code; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--border); }
   #code .head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -108,6 +121,7 @@
   <button class="btn" id="b-load" data-t>Load…</button>
   <button class="btn" id="b-save" data-t>Save design</button>
   <button class="btn" id="b-v" data-t>Download Verilog</button>
+  <button class="btn" id="b-sim" title="Simulation: click inputs to change them, clock the registers, watch the wires" data-t>▶ Simulate</button>
   <button class="btn primary" id="b-open" title="Save the Verilog file in the folder and open it in the viewer (simulation, timing, FSM…)" data-t>▶ Save &amp; open in viewer</button>
   <button class="btn" id="btn-lang" title="Language / Dil">TR</button>
   <button class="btn" id="btn-theme" title="Toggle light/dark theme">◐</button>
@@ -149,7 +163,17 @@
   <div id="props"></div>
   <div class="help" id="help"></div>
 </aside>
-<div id="canvas"></div>
+<div id="canvas">
+  <div id="simbar" hidden>
+    <label for="sim-clk" data-t>Clock</label> <select id="sim-clk"></select>
+    <button class="btn" id="sim-step" title="One clock cycle (rising and falling edge)" data-t>Step ⏵</button>
+    <button class="btn" id="sim-auto" title="Clock automatically" data-t>▶ Run</button>
+    <select id="sim-hz" title="Clock speed"><option value="1">1 Hz</option><option value="2" selected>2 Hz</option><option value="5">5 Hz</option><option value="10">10 Hz</option><option value="30">30 Hz</option></select>
+    <button class="btn" id="sim-reset" title="Clear all registers" data-t>Reset</button>
+    <span id="sim-cycle"></span>
+    <span class="hint" data-t>Click an input to change it.</span>
+  </div>
+</div>
 <section id="code">
   <div class="head"><b>Verilog</b><span class="spacer"></span><button class="btn" id="b-copy" data-t>Copy</button></div>
   <pre id="verilog"></pre>
@@ -222,6 +246,12 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "Width: {n} bit(s), from its driver": "Genişlik: {n} bit, sürücüsünden", "Value (decimal)": "Değer (onluk)",
     "Data inputs": "Veri girişi sayısı",
     "width mismatch: {a} bits into {pin} of {node} ({b} bits)": "genişlik uyuşmuyor: {node} {pin} girişine {a} bit geliyor ({b} bit bekleniyor)",
+    "▶ Simulate": "▶ Simüle et", "■ Stop simulation": "■ Simülasyonu durdur",
+    "Simulation: click inputs to change them, clock the registers, watch the wires": "Simülasyon: girişlere tıklayıp değiştir, register'ları saatle, telleri izle",
+    "Clock": "Saat", "Step ⏵": "Adım ⏵", "One clock cycle (rising and falling edge)": "Bir saat çevrimi (yükselen ve düşen kenar)",
+    "▶ Run": "▶ Çalıştır", "⏸ Pause": "⏸ Duraklat", "Clock automatically": "Otomatik saat", "Clock speed": "Saat hızı",
+    "Reset": "Sıfırla", "Clear all registers": "Tüm register'ları sıfırla", "Click an input to change it.": "Değiştirmek için girişe tıkla.",
+    "cycle {n}": "çevrim {n}", "oscillates (combinational loop)": "salınıyor (kombinasyonel döngü)",
     "Drag the handle to move the wire; double-click it to reset.": "Teli kaydırmak için tutamağı sürükle; sıfırlamak için çift tıkla.",
   };
   let LANG = "en";
@@ -402,8 +432,12 @@ const EDITOR = /*__EDITOR_DATA__*/null;
   const route = (a, b, w) => geom(a, b, w).d;
   let rubber = null, AN = null;
   const widthOf = (nd) => (AN ? AN.width(nd) : 1);
+  // ---- simulation (VVEditor.createSim: runs on the drawing itself) ----------------------------
+  let SIM = null, simTimer = null;
+  const fmtVal = (v, w) => (w <= 8 ? v.toString() : "0x" + v.toString(16).toUpperCase());
   function draw() {
     AN = VVEditor.analyze(D);
+    if (SIM) SIM.update(D);
     svg.textContent = "";
     const defs = el("defs", {});
     const pat = el("pattern", { id: "grid", width: 20, height: 20, patternUnits: "userSpaceOnUse" });
@@ -417,9 +451,16 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       if (!a || !b) continue;
       const pa = pinPos(a, w.from.pin, true), d = route(pa, pinPos(b, w.to.pin, false), w);
       const bw = AN.outW(a, a.type === "tag" ? "T" : w.from.pin);
-      svg.append(el("path", { class: "wire" + (bw > 1 ? " bus" : "") + (sel.wires.has(w.id) ? " sel" : ""), d }));
+      // the value on the wire: of its real driver (a label passes on the value of the net)
+      let sv = null;
+      if (SIM) { const src = a.type === "tag" ? AN.srcWire(b, w.to.pin) : w; sv = src ? SIM.value(src.from.node, src.from.pin) : 0n; }
+      svg.append(el("path", { class: "wire" + (bw > 1 ? " bus" : "") + (sv ? " on" : "") + (sel.wires.has(w.id) ? " sel" : ""), d }));
       const key = `${a.id}:${w.from.pin}`;
-      if (bw > 1 && !labelled.has(key)) { labelled.add(key); svg.append(el("text", { class: "wbits", x: pa.x + 6, y: pa.y + 13 }, String(bw))); }
+      if (!labelled.has(key) && (bw > 1 || (SIM && a.type === "tag"))) {
+        labelled.add(key);
+        if (SIM && sv !== null) svg.append(el("text", { class: "wval", x: pa.x + 6, y: pa.y + 13 }, fmtVal(sv, bw)));
+        else svg.append(el("text", { class: "wbits", x: pa.x + 6, y: pa.y + 13 }, String(bw)));
+      }
       svg.append(el("path", { class: "wire-hit", d, "data-wire": w.id }));
       if (a.label && !labelled.has(a.id) && !PORTS.includes(a.type)) {   // net name once, next to the driving pin
         labelled.add(a.id);
@@ -427,8 +468,20 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       }
     }
     for (const nd of D.nodes) {
-      const g = el("g", { class: "node" + (nd.type === "tag" ? " tag" : "") + (sel.nodes.has(nd.id) ? " sel" : ""), transform: `translate(${nd.x},${nd.y})`, "data-node": nd.id });
+      let on = false, shown = null;
+      if (SIM) {
+        const nw = widthOf(nd);
+        if (nd.type === "in") { const v = SIM.input(nd.id); on = nw === 1 && v === 1n; shown = fmtVal(v, nw); }
+        else if (nd.type === "out") { const v = SIM.pin(nd, "A"); on = nw === 1 && v === 1n; shown = fmtVal(v, nw); }
+        else if (VVEditor.SEQ_TYPES.includes(nd.type)) shown = fmtVal(SIM.reg(nd.id), nw);
+      }
+      const g = el("g", { class: "node" + (nd.type === "tag" ? " tag" : "") + (nd.type === "in" ? " port-in" : "") + (on ? " on" : "") + (sel.nodes.has(nd.id) ? " sel" : ""), transform: `translate(${nd.x},${nd.y})`, "data-node": nd.id });
       g.append(symbol(nd));
+      if (shown !== null) {
+        const z = sizeOf(nd);
+        if (nd.type === "in" || nd.type === "out") g.append(el("text", { class: "nval", x: nd.type === "in" ? -6 : z.w + 6, y: z.h / 2 + 4, "text-anchor": nd.type === "in" ? "end" : "start" }, shown));
+        else g.append(el("text", { class: "nval", x: z.w, y: -4, "text-anchor": "end" }, "= " + shown));
+      }
       const p = pinsOf(nd);
       if (nd.type === "tag") {
         const used = D.wires.some((w) => w.from.node === nd.id || w.to.node === nd.id);
@@ -455,6 +508,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       svg.append(hd);
     }
     if (rubber) svg.append(rubber.el);
+    simControls();
     generate();
     renderProps();
   }
@@ -517,7 +571,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     };
     if (!viaWire && nd.type !== "tag" && nd.type !== "const0" && nd.type !== "const1") {
       const auto = VVEditor.AUTO.has(nd.type), lim = nd.type === "dec" ? 5 : nd.type === "split" || nd.type === "merge" ? 32 : 64;
-      numField(nd.type === "dec" ? _t("Input bits (outputs: 2^bits)") : _t("Bits (width)"), nd.bits,
+      numField(nd.type === "dec" ? _t("Input bits (outputs: 2^bits)") : _t("Bits (width)"), nd.bits !== undefined ? nd.bits : auto ? undefined : VVEditor.defaultBits(nd),
         auto ? _t("automatic") + `: ${widthOf(nd)}` : "", nd.type === "split" || nd.type === "merge" ? 2 : 1, lim,
         (v) => { if (v === undefined && !auto) return; if (v === undefined) delete nd.bits; else nd.bits = v; });
     }
@@ -706,6 +760,18 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       if (pinEl) connect(drag.start, { node: +pinEl.closest(".node").dataset.node, pin: pinEl.dataset.pin, dir: pinEl.dataset.dir });
     }
     if (drag && (drag.kind === "move" || drag.kind === "bend") && drag.moved) commit();
+    // simulation: a click on an input changes it
+    if (SIM && drag && drag.kind === "move" && !drag.moved) {
+      const nd = byId()[drag.id];
+      if (nd && nd.type === "in") {
+        const w = widthOf(nd);
+        if (w === 1) { SIM.setInput(nd.id, SIM.input(nd.id) ? 0n : 1n); draw(); }
+        else inlineEdit(e.clientX, e.clientY, SIM.input(nd.id).toString(), "0x…", (v) => { SIM.setInput(nd.id, BigInt(v)); },
+          (v) => /^(0x[0-9a-f]+|0b[01]+|\d+)$/i.test(v), true);
+        drag = null; $("canvas").classList.remove("panning");
+        return;
+      }
+    }
     // a plain click on one item of a multi-selection selects just that item
     if (drag && drag.kind === "move" && !drag.moved && selCount() > 1) { clearSel(); sel.nodes.add(drag.id); draw(); }
     if (drag && drag.kind === "box") { rubber = null; draw(); }
@@ -713,7 +779,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     drag = null;
   });
   // double-click: name things right where they are
-  function inlineEdit(cx, cy, value, placeholder, onSet, valid = isIdent) {
+  function inlineEdit(cx, cy, value, placeholder, onSet, valid = isIdent, noCommit = false) {
     for (const x of document.querySelectorAll(".inline-edit")) x.remove();
     const box = $("canvas").getBoundingClientRect();
     const i = document.createElement("input");
@@ -727,7 +793,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       const v = i.value.trim();
       if (ok && v && !valid(v)) { i.classList.add("bad"); return; }
       done = true; i.remove();
-      if (ok && v !== (value || "")) { onSet(v); commit(); draw(); }
+      if (ok && v !== (value || "")) { onSet(v); if (!noCommit) commit(); draw(); }
     };
     i.oninput = () => i.classList.toggle("bad", !!i.value && !valid(i.value.trim()));
     i.onkeydown = (ev) => { ev.stopPropagation(); if (ev.key === "Enter") finish(true); if (ev.key === "Escape") finish(false); };
@@ -752,6 +818,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     const nodes = byId();
     if (target.dataset.node) {
       const nd = nodes[+target.dataset.node];
+      if (SIM && nd.type === "in") return;   // in simulation a click on an input toggles it
       sel.nodes.add(nd.id); draw();
       renameNode(nd, e.clientX, e.clientY);
     } else {
@@ -778,6 +845,36 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     else if (e.key === "Escape") { clearSel(); draw(); }
   });
   window.addEventListener("keyup", (e) => { if (e.key === " ") { spaceDown = false; $("canvas").classList.remove("panning"); } });
+
+  function simControls() {
+    if (!SIM) return;
+    const pick = $("sim-clk"), keep = pick.value;
+    const ins = D.nodes.filter((n) => n.type === "in" && widthOf(n) === 1), clocks = SIM.clocks();
+    pick.textContent = "";
+    for (const n of ins) { const o = document.createElement("option"); o.value = n.id; o.textContent = n.name; pick.append(o); }
+    if (ins.some((n) => String(n.id) === keep)) pick.value = keep;
+    else if (clocks.length) pick.value = clocks[0].id;
+    $("sim-step").disabled = $("sim-auto").disabled = !ins.length;
+    $("sim-cycle").textContent = _t("cycle {n}", { n: SIM.cycle }) + (SIM.unstable ? " · " + _t("oscillates (combinational loop)") : "");
+  }
+  const stopAuto = () => { clearInterval(simTimer); simTimer = null; $("sim-auto").textContent = _t("▶ Run"); };
+  const simStep = () => { const id = +$("sim-clk").value; if (!id) return; SIM.clock(id); draw(); };
+  $("sim-step").onclick = simStep;
+  $("sim-auto").onclick = () => {
+    if (simTimer) return stopAuto();
+    simTimer = setInterval(simStep, 1000 / +$("sim-hz").value);
+    $("sim-auto").textContent = _t("⏸ Pause");
+  };
+  $("sim-hz").onchange = () => { if (simTimer) { stopAuto(); $("sim-auto").click(); } };
+  $("sim-reset").onclick = () => { SIM.reset(); draw(); };
+  $("b-sim").onclick = () => {
+    if (SIM) { stopAuto(); SIM = null; } else SIM = VVEditor.createSim(D);
+    document.body.classList.toggle("sim", !!SIM);
+    $("simbar").hidden = !SIM;
+    $("b-sim").classList.toggle("on", !!SIM);
+    $("b-sim").textContent = SIM ? _t("■ Stop simulation") : _t("▶ Simulate");
+    draw();
+  };
 
   // ---- Verilog generation (editor_core.js, inlined above) ---------------------------------
   function verilog() { return VVEditor.toVerilog(D, $("modname").value, _t); }

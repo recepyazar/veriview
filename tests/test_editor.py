@@ -80,12 +80,7 @@ def test_warnings(tmp_path):
     assert "duplicate port name y" in warn
 
 
-@needs_tools
-@pytest.mark.parametrize("stage", ["opt", "gate"])
-def test_drawn_design_simulates_correctly(tmp_path, stage):
-    src = tmp_path / "drawn.v"
-    src.write_text(to_verilog(tmp_path, DESIGN)["text"])
-    data = build(tmp_path, src, stage=stage)
+def design_scenario():
     ops, exp = [["set", "rst_n", 1]], []
     for a, b, cin, sel in itertools.product((0, 1), repeat=4):
         ops += [["set", "a", a], ["set", "b", b], ["set", "cin", cin], ["set", "sel", sel],
@@ -95,6 +90,16 @@ def test_drawn_design_simulates_correctly(tmp_path, stage):
     ops += [["set", "a", 1], ["set", "b", 0], ["set", "cin", 0], ["clock", "clk", 1], ["get", "q"],
             ["set", "rst_n", 0], ["get", "q"]]
     exp += [1, 0]
+    return ops, exp
+
+
+@needs_tools
+@pytest.mark.parametrize("stage", ["opt", "gate"])
+def test_drawn_design_simulates_correctly(tmp_path, stage):
+    src = tmp_path / "drawn.v"
+    src.write_text(to_verilog(tmp_path, DESIGN)["text"])
+    data = build(tmp_path, src, stage=stage)
+    ops, exp = design_scenario()
     assert simulate(tmp_path, data, stage, ops) == exp
 
 
@@ -253,11 +258,7 @@ def test_bus_width_warnings(tmp_path):
     assert "CIN" not in warn                                                # optional pins may stay open
 
 
-@needs_tools
-def test_bus_design_simulates(tmp_path):
-    src = tmp_path / "blocks.v"
-    src.write_text(to_verilog(tmp_path, BLOCKS, "blocks")["text"])
-    data = build(tmp_path, src, stage="opt")
+def blocks_scenario():
     ops, exp = [["set", "rst_n", 1], ["set", "en", 0]], []
     consts = [3, 9, 12, 15]
     for a, b, cin, sel in [(5, 3, 0, 0), (9, 9, 1, 1), (2, 14, 1, 2), (15, 15, 1, 3), (0, 1, 0, 1)]:
@@ -271,4 +272,47 @@ def test_bus_design_simulates(tmp_path):
             ["set", "en", 1], ["clock", "clk", 1], ["get", "q"], ["set", "rst_n", 0], ["get", "q"], ["get", "c"],
             ["clock", "clk", 4], ["get", "c"]]
     exp += [0, 7, 0, 2, 6]   # 2 clocks so far -> c = 2; 4 more -> 6
+    return ops, exp
+
+
+@needs_tools
+def test_bus_design_simulates(tmp_path):
+    src = tmp_path / "blocks.v"
+    src.write_text(to_verilog(tmp_path, BLOCKS, "blocks")["text"])
+    data = build(tmp_path, src, stage="opt")
+    ops, exp = blocks_scenario()
     assert simulate(tmp_path, data, "opt", ops) == exp
+
+
+# ---- the editor's own simulator (createSim): same scenarios, same results as the compiled Verilog ----
+def editor_sim(tmp_path: Path, design: dict, ops: list) -> list:
+    script = tmp_path / "esim.js"
+    script.write_text(f"""const E = require({json.dumps(str(CORE))});
+const D = {json.dumps(design)}, ops = {json.dumps(ops)};
+const id = (name) => D.nodes.find((n) => (n.type === "in" || n.type === "out") && n.name === name).id;
+const s = E.createSim(D), res = [];
+for (const [op, name, v] of ops) {{
+  if (op === "set") s.setInput(id(name), BigInt(v));
+  else if (op === "clock") s.clock(id(name), v);
+  else res.push(Number(s.value(...(() => {{ const o = D.nodes.find((n) => n.id === id(name));
+    const w = D.wires.find((x) => x.to.node === o.id); return [w.from.node, w.from.pin]; }})())));
+}}
+console.log(JSON.stringify(res));""")
+    r = subprocess.run([NODE, str(script)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+@pytest.mark.parametrize("design, scenario", [(DESIGN, design_scenario), (BLOCKS, blocks_scenario)])
+def test_editor_simulator(tmp_path, design, scenario):
+    ops, exp = scenario()
+    assert editor_sim(tmp_path, design, ops) == exp
+
+
+def test_editor_simulator_labels_and_derived_clock(tmp_path):
+    # a register clocked through a net label and an AND gate (clock gating): counts only while en = 1
+    d = {"nodes": [node(1, "in", name="clk"), node(2, "in", name="en"), node(3, "and"), node(4, "tag", name="gclk"),
+                   node(5, "tag", name="gclk"), node(6, "cnt", bits=4), node(7, "out", name="q")],
+         "wires": [W(1, "Y", 3, "A"), W(2, "Y", 3, "B"), W(3, "Y", 4, "T"), W(5, "T", 6, "CLK"), W(6, "Q", 7, "A")]}
+    ops = [["set", "en", 1], ["clock", "clk", 3], ["get", "q"], ["set", "en", 0], ["clock", "clk", 5], ["get", "q"]]
+    assert editor_sim(tmp_path, d, ops) == [3, 3]

@@ -284,5 +284,120 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
   return { text: L.join("\n"), warn, mod };
 }
 const isOptional = (nd, pin) => OPTIONAL.has(pin) && BLOCK_TYPES.includes(nd.type);
-const VVEditor = { isOptional, GATE2, BLOCK_TYPES, PORT_TYPES, SEQ_TYPES, AUTO, pinsOf, analyze, toVerilog, ident, defaultBits, clampBits };
+
+/* Simulation of a drawing, without Yosys: two-valued (unconnected inputs are 0, exactly as in the
+ * generated Verilog), values as BigInt. Registers start at 0 and change on a rising edge of their
+ * CLK net (any net: clocks from gates work too); active-low resets act immediately.
+ *   const s = createSim(D); s.setInput(id, 1n); s.clock(clkId); s.value(nodeId, pin); s.update(D2)
+ */
+function createSim(D0) {
+  let D, A, byId, comb, ffs, order;
+  const inputs = new Map(), regs = new Map(), prevClk = new Map(), out = new Map();
+  const mask = (w) => (1n << BigInt(w)) - 1n;
+  const sim = { cycle: 0, unstable: false };
+  function build(Dn) {
+    D = Dn; A = analyze(D); byId = A.byId;
+    const gates = D.nodes.filter((n) => !PORT_TYPES.includes(n.type));
+    comb = gates.filter((n) => !SEQ_TYPES.includes(n.type)); ffs = gates.filter((n) => SEQ_TYPES.includes(n.type));
+    // topological order of the combinational nodes (nodes on loops at the end; passes repeat until stable)
+    const deg = new Map(comb.map((g) => [g.id, 0])), succ = new Map(comb.map((g) => [g.id, []]));
+    for (const g of comb) for (const pin of pinsOf(g).ins) {
+      const w = A.srcWire(g, pin);
+      if (w && succ.has(w.from.node)) { succ.get(w.from.node).push(g.id); deg.set(g.id, deg.get(g.id) + 1); }
+    }
+    order = []; const q = comb.filter((g) => !deg.get(g.id)).map((g) => g.id), seen = new Set();
+    while (q.length) { const id = q.shift(); order.push(byId[id]); seen.add(id); for (const u of succ.get(id)) { deg.set(u, deg.get(u) - 1); if (!deg.get(u)) q.push(u); } }
+    for (const g of comb) if (!seen.has(g.id)) order.push(g);
+    for (const id of [...inputs.keys()]) if (!byId[id]) inputs.delete(id);
+    for (const id of [...regs.keys()]) if (!byId[id]) { regs.delete(id); prevClk.delete(id); }
+  }
+  const W = (nd) => A.width(nd);
+  // value at an input pin (masked to the pin's width)
+  const val = (nd, pin) => {
+    const w = A.srcWire(nd, pin), from = w && byId[w.from.node];
+    if (!from) return isOptional(nd, pin) && pin !== "CIN" ? 1n : 0n;
+    const v = out.get(`${from.id}:${w.from.pin}`) || 0n;
+    return v & mask(nd.type === "out" ? W(nd) : A.inW(nd, pin));
+  };
+  const set = (nd, pin, v, w) => { const k = `${nd.id}:${pin}`, x = v & mask(w); if (out.get(k) !== x) { out.set(k, x); return true; } return false; };
+  function evalNode(g) {
+    const t = g.type, n = W(g), m = mask(n);
+    const ins = (pins) => pins.map((p) => val(g, p));
+    switch (t) {
+      case "not": return set(g, "Y", ~val(g, "A"), n);
+      case "buf": return set(g, "Y", val(g, "A"), n);
+      case "mux": return set(g, "Y", val(g, "S") & 1n ? val(g, "B") : val(g, "A"), n);
+      case "add": { const s = val(g, "A") + val(g, "B") + val(g, "CIN"); return set(g, "S", s, n) | set(g, "COUT", s >> BigInt(n), 1); }
+      case "sub": { const d = val(g, "A") - val(g, "B"); return set(g, "Y", d < 0n ? d + (1n << BigInt(n)) : d, n) | set(g, "BOUT", d < 0n ? 1n : 0n, 1); }
+      case "cmp": { const a = val(g, "A"), b = val(g, "B"); return set(g, "EQ", a === b ? 1n : 0n, 1) | set(g, "LT", a < b ? 1n : 0n, 1) | set(g, "GT", a > b ? 1n : 0n, 1); }
+      case "dec": { const ow = A.outW(g, "Y"), a = val(g, "A"); return set(g, "Y", a < BigInt(ow) ? 1n << a : 0n, ow); }
+      case "muxn": { const k = clampBits(g.k || 4, 2, 16), s = Number(val(g, "S")); return set(g, "Y", val(g, "D" + Math.min(s, k - 1)), n); }
+      case "merge": { let v = 0n; pinsOf(g).ins.forEach((p, i) => { v |= (val(g, p) & 1n) << BigInt(i); }); return set(g, "Y", v, n); }
+      case "split": { const a = val(g, "A"); let ch = false; pinsOf(g).outs.forEach((p, i) => { ch = set(g, p, a >> BigInt(i), 1) || ch; }); return ch; }
+      default: {
+        const v = ins(pinsOf(g).ins);
+        let r = v[0];
+        for (const x of v.slice(1)) r = t.endsWith("and") ? r & x : t.endsWith("xor") || t === "xnor" ? r ^ x : r | x;
+        if (t === "nand" || t === "nor" || t === "xnor") r = ~r;
+        return set(g, "Y", r & m, n);
+      }
+    }
+  }
+  function evalComb() {
+    for (const nd of D.nodes) {
+      if (nd.type === "in") set(nd, "Y", inputs.get(nd.id) || 0n, W(nd));
+      else if (nd.type === "const0" || nd.type === "const1") set(nd, "Y", nd.type === "const1" ? 1n : 0n, 1);
+      else if (nd.type === "const") set(nd, "Y", BigInt(Math.max(0, Math.floor(+nd.value || 0))), W(nd));
+      else if (SEQ_TYPES.includes(nd.type)) set(nd, "Q", regs.get(nd.id) || 0n, W(nd));
+    }
+    sim.unstable = false;
+    for (let pass = 0; pass < 50; pass++) {
+      let ch = false;
+      for (const g of order) ch = evalNode(g) || ch;
+      if (!ch) return;
+    }
+    sim.unstable = true;   // a combinational loop that oscillates
+  }
+  // evaluate, then let registers react (edges, resets) until nothing changes
+  function settle() {
+    for (let it = 0; it < 32; it++) {
+      evalComb();
+      const next = [];
+      for (const f of ffs) {
+        const clk = val(f, "CLK") & 1n;
+        const hasRst = f.type === "dffr" || ((f.type === "reg" || f.type === "cnt") && A.srcWire(f, "RST_N"));
+        const rst = hasRst ? val(f, "RST_N") & 1n : 1n;
+        if (!prevClk.has(f.id)) prevClk.set(f.id, clk);
+        const q = regs.get(f.id) || 0n;
+        if (rst === 0n) { if (q !== 0n) next.push([f, 0n]); }
+        else if (prevClk.get(f.id) === 0n && clk === 1n) {
+          const en = f.type === "reg" || f.type === "cnt" ? val(f, "EN") & 1n : 1n;
+          if (en) next.push([f, (f.type === "cnt" ? q + 1n : val(f, "D")) & mask(W(f))]);
+        }
+        prevClk.set(f.id, clk);
+      }
+      if (!next.length) return;
+      for (const [f, v] of next) regs.set(f.id, v);
+    }
+  }
+  sim.update = (Dn) => { build(Dn); settle(); return sim; };
+  sim.setInput = (id, v) => { inputs.set(id, BigInt(v) & mask(W(byId[id]))); settle(); };
+  sim.input = (id) => inputs.get(id) || 0n;
+  sim.value = (id, pin) => out.get(`${id}:${pin}`) || 0n;
+  sim.reg = (id) => regs.get(id) || 0n;
+  sim.pin = (nd, pin) => val(nd, pin);   // value arriving at an input pin (e.g. of an output port)
+  // inputs that drive a CLK pin (clock candidates)
+  sim.clocks = () => {
+    const ids = new Set();
+    for (const f of ffs) { const w = A.srcWire(f, "CLK"); if (w && byId[w.from.node] && byId[w.from.node].type === "in") ids.add(w.from.node); }
+    return D.nodes.filter((n) => ids.has(n.id));
+  };
+  sim.clock = (id, n = 1) => {
+    for (let i = 0; i < n; i++) { sim.setInput(id, 1n); sim.setInput(id, 0n); sim.cycle++; }
+  };
+  sim.reset = () => { regs.clear(); prevClk.clear(); sim.cycle = 0; settle(); };
+  sim.width = (nd) => W(nd);
+  return sim.update(D0);
+}
+const VVEditor = { createSim, isOptional, GATE2, BLOCK_TYPES, PORT_TYPES, SEQ_TYPES, AUTO, pinsOf, analyze, toVerilog, ident, defaultBits, clampBits };
 if (typeof module !== "undefined" && module.exports) module.exports = VVEditor;

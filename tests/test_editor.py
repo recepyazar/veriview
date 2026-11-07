@@ -183,7 +183,9 @@ def test_module_opened_in_editor_behaves_the_same(tmp_path):
     out = tmp_path / "e.json"
     Synthesizer(collect_sources([str(EX / "counter.sv")], [], []), tmp_path).synthesize("counter", out, stage="editor")
     d = netlist_to_design(json.loads(out.read_text()))
-    assert {n["name"] for n in d["nodes"] if n["type"] == "out"} == {"count_0", "count_1", "count_2", "count_3"}
+    assert [n["name"] for n in d["nodes"] if n["type"] == "out"] == ["count"]     # a 4-bit output fed by a merger
+    ffs = [n for n in d["nodes"] if n["type"] in ("dff", "dffr")]
+    assert {n.get("label") for n in ffs} == {f"count_{i}" for i in range(4)}
     assert len({(n["x"], n["y"]) for n in d["nodes"]}) == len(d["nodes"])       # no two nodes on top of each other
     res = to_verilog(tmp_path, d, d["module"])
     assert res["warn"] == []
@@ -193,6 +195,80 @@ def test_module_opened_in_editor_behaves_the_same(tmp_path):
     ops = [["set", "rst_n", 1]]
     exp = []
     for i in range(1, 19):
-        ops += [["clock", "clk", 1]] + [["get", f"count_{b}"] for b in range(4)]
-        exp += [(i % 16) >> b & 1 for b in range(4)]
+        ops += [["clock", "clk", 1], ["get", "count"]]
+        exp += [i % 16]
+    assert simulate(tmp_path, data, "opt", ops) == exp
+
+
+# buses and blocks: 4-bit a, b; adder, subtractor, comparator, 4:1 MUX of constants, decoder,
+# split/merge (bit reversal), a 4-bit AND gate and an output whose width follows its driver,
+# a register with enable + reset and a counter
+OUTS = ["s", "cout", "d", "bout", "eq", "lt", "gt", "m", "onehot", "rev", "ab", "q", "c"]
+BLOCKS = {
+    "nodes": [
+        node(1, "in", name="a", bits=4), node(2, "in", name="b", bits=4), node(3, "in", name="cin"),
+        node(4, "in", name="sel", bits=2), node(5, "in", name="clk"), node(6, "in", name="rst_n"),
+        node(7, "in", name="en"), node(10, "add", bits=4), node(11, "sub", bits=4), node(12, "cmp", bits=4),
+        node(13, "muxn", bits=4, k=4), node(14, "const", bits=4, value=3), node(15, "const", bits=4, value=9),
+        node(16, "const", bits=4, value=12), node(17, "const", bits=4, value=15), node(18, "dec", bits=2),
+        node(19, "split", bits=4), node(20, "merge", bits=4), node(21, "and", n=2), node(22, "reg", bits=4),
+        node(23, "cnt", bits=3), *[node(30 + i, "out", name=n) for i, n in enumerate(OUTS)],
+    ],
+    "wires": [
+        W(1, "Y", 10, "A"), W(2, "Y", 10, "B"), W(3, "Y", 10, "CIN"), W(10, "S", 30, "A"), W(10, "COUT", 31, "A"),
+        W(1, "Y", 11, "A"), W(2, "Y", 11, "B"), W(11, "Y", 32, "A"), W(11, "BOUT", 33, "A"),
+        W(1, "Y", 12, "A"), W(2, "Y", 12, "B"), W(12, "EQ", 34, "A"), W(12, "LT", 35, "A"), W(12, "GT", 36, "A"),
+        W(14, "Y", 13, "D0"), W(15, "Y", 13, "D1"), W(16, "Y", 13, "D2"), W(17, "Y", 13, "D3"), W(4, "Y", 13, "S"),
+        W(13, "Y", 37, "A"), W(4, "Y", 18, "A"), W(18, "Y", 38, "A"),
+        W(1, "Y", 19, "A"), W(19, "B0", 20, "B3"), W(19, "B1", 20, "B2"), W(19, "B2", 20, "B1"), W(19, "B3", 20, "B0"),
+        W(20, "Y", 39, "A"), W(1, "Y", 21, "A"), W(2, "Y", 21, "B"), W(21, "Y", 40, "A"),
+        W(10, "S", 22, "D"), W(5, "Y", 22, "CLK"), W(7, "Y", 22, "EN"), W(6, "Y", 22, "RST_N"), W(22, "Q", 41, "A"),
+        W(5, "Y", 23, "CLK"), W(23, "Q", 42, "A"),
+    ],
+}
+
+
+def test_bus_verilog_text(tmp_path):
+    res = to_verilog(tmp_path, BLOCKS, "blocks")
+    text = res["text"]
+    assert res["warn"] == []
+    assert "input  wire [3:0] a," in text and "output wire [7:0] onehot" not in text
+    assert "output wire [3:0] onehot," in text and "output wire [3:0] ab," in text and "output wire [2:0] c" in text
+    assert "assign {add10_cout, add10} = a + b + cin;" in text
+    assert "assign {sub11_bout, sub11} = {1'b0, a} - {1'b0, b};" in text
+    assert "assign muxn13 = (sel == 2'd0) ? 4'd3 : (sel == 2'd1) ? 4'd9 : (sel == 2'd2) ? 4'd12 : 4'd15;" in text
+    assert "assign dec18 = 4'd1 << sel;" in text
+    assert "assign merge20 = {split19[0], split19[1], split19[2], split19[3]};" in text
+    assert "if (!rst_n) reg22 <= 4'd0;" in text and "else if (en) reg22 <= add10;" in text
+    assert "always @(posedge clk)\n    cnt23 <= cnt23 + 1'b1;" in text      # no reset / enable connected
+
+
+def test_bus_width_warnings(tmp_path):
+    d = {"nodes": [node(1, "in", name="a", bits=4), node(2, "in", name="b", bits=2), node(3, "add", bits=4),
+                   node(4, "out", name="y", bits=8)],
+         "wires": [W(1, "Y", 3, "A"), W(2, "Y", 3, "B"), W(3, "S", 4, "A")]}
+    warn = " | ".join(to_verilog(tmp_path, d)["warn"])
+    assert "width mismatch: 2 bits into B of ADD3 (4 bits)" in warn
+    assert "width mismatch: 4 bits into A of y (8 bits)" in warn
+    assert "CIN" not in warn                                                # optional pins may stay open
+
+
+@needs_tools
+def test_bus_design_simulates(tmp_path):
+    src = tmp_path / "blocks.v"
+    src.write_text(to_verilog(tmp_path, BLOCKS, "blocks")["text"])
+    data = build(tmp_path, src, stage="opt")
+    ops, exp = [["set", "rst_n", 1], ["set", "en", 0]], []
+    consts = [3, 9, 12, 15]
+    for a, b, cin, sel in [(5, 3, 0, 0), (9, 9, 1, 1), (2, 14, 1, 2), (15, 15, 1, 3), (0, 1, 0, 1)]:
+        ops += [["set", "a", a], ["set", "b", b], ["set", "cin", cin], ["set", "sel", sel]]
+        ops += [["get", x] for x in ("s", "cout", "d", "bout", "eq", "lt", "gt", "m", "onehot", "rev", "ab")]
+        rev = int(f"{a:04b}"[::-1], 2)
+        exp += [(a + b + cin) & 15, (a + b + cin) >> 4, (a - b) & 15, int(a < b), int(a == b), int(a < b), int(a > b),
+                consts[sel], 1 << sel, rev, a & b]
+    # register: holds while en = 0, loads the sum with en = 1; async reset clears it; the counter counts
+    ops += [["set", "a", 6], ["set", "b", 1], ["set", "cin", 0], ["clock", "clk", 1], ["get", "q"],
+            ["set", "en", 1], ["clock", "clk", 1], ["get", "q"], ["set", "rst_n", 0], ["get", "q"], ["get", "c"],
+            ["clock", "clk", 4], ["get", "c"]]
+    exp += [0, 7, 0, 2, 6]   # 2 clocks so far -> c = 2; 4 more -> 6
     assert simulate(tmp_path, data, "opt", ops) == exp

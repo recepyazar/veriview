@@ -144,7 +144,10 @@ def test_open_module_in_editor(proj):
     types = {n["type"] for n in d["nodes"]}
     assert {"in", "out"} <= types and types & {"xor", "xnor"}
     whole = la.to_editor({"id": b["id"], "module": ""})          # the build's top, flattened
-    assert whole["module"] == "rca" and any("split" in w for w in whole["warn"])
+    assert whole["module"] == "rca" and whole["warn"] == []
+    ins = {n["name"]: n.get("bits", 1) for n in whole["nodes"] if n["type"] == "in"}
+    assert ins == {"a": 8, "b": 8, "cin": 1}                          # buses stay buses (with a splitter)
+    assert sum(n["type"] == "split" for n in whole["nodes"]) == 2 and any(n["type"] == "merge" for n in whole["nodes"])
     assert "error" in la.to_editor({"id": b["id"], "module": "nosuch"})
     la.shutdown()
 

@@ -65,7 +65,13 @@
   .pin.free { stroke: var(--bad); }
   .wire { fill: none; stroke: var(--wire); stroke-width: 2; }
   .wire-hit { fill: none; stroke: transparent; stroke-width: 10; cursor: pointer; }
+  .wire.bus { stroke-width: 4; }
   .wire.sel { stroke: var(--sel); stroke-width: 3; }
+  .wire.bus.sel { stroke-width: 5; }
+  text.wbits { fill: var(--muted); font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; pointer-events: none; }
+  .node text.pinname { font-size: 10px; fill: var(--muted); }
+  .node .blk .body { fill: var(--accent-soft); }
+  #props input[type="number"] { width: 100%; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font-family: ui-monospace, Menlo, monospace; }
   .wire.temp { stroke: var(--accent); stroke-dasharray: 5 4; }
   .tag .body { fill: var(--accent-soft); }
   .handle { fill: var(--paper); stroke: var(--sel); stroke-width: 2; cursor: ew-resize; }
@@ -112,6 +118,7 @@
   <div class="grid">
     <button class="btn" data-add="in" data-t>Input</button><button class="btn" data-add="out" data-t>Output</button>
     <button class="btn" data-add="const0">0</button><button class="btn" data-add="const1">1</button>
+    <button class="btn" data-add="const" title="Constant with several bits (value in the selection panel)" style="grid-column: span 2" data-t>N-bit constant</button>
     <button class="btn" data-add="tag" title="Net label: labels with the same name are connected (no wire needed)" style="grid-column: span 2" data-t>🏷 Label</button>
   </div>
   <h3 data-t>Gates</h3>
@@ -125,6 +132,18 @@
   <h3 data-t>Flip-flops</h3>
   <div class="grid">
     <button class="btn" data-add="dff">DFF</button><button class="btn" data-add="dffr" title="DFF with active-low asynchronous reset">DFF+R</button>
+  </div>
+  <h3 data-t>Blocks</h3>
+  <div class="grid">
+    <button class="btn" data-add="add" title="Adder: S = A + B + CIN, COUT = carry">ADD</button>
+    <button class="btn" data-add="sub" title="Subtractor: Y = A - B, BOUT = borrow (A &lt; B)">SUB</button>
+    <button class="btn" data-add="cmp" title="Comparator (unsigned): EQ, LT, GT">CMP</button>
+    <button class="btn" data-add="muxn" title="Multiplexer with N data inputs: Y = D[S]">MUX N:1</button>
+    <button class="btn" data-add="dec" title="Decoder: one-hot output, Y = 1 &lt;&lt; A">DEC</button>
+    <button class="btn" data-add="reg" title="Register: Q &lt;= D on the clock edge when EN = 1; RST_N clears it (EN, RST_N optional)">REG</button>
+    <button class="btn" data-add="cnt" title="Counter: Q &lt;= Q + 1 on the clock edge when EN = 1; RST_N clears it (EN, RST_N optional)">CNT</button>
+    <button class="btn" data-add="split" title="Splitter: a bus into single bits (B0 = least significant bit)" data-t>Split</button>
+    <button class="btn" data-add="merge" title="Merger: single bits into a bus (B0 = least significant bit)" data-t>Merge</button>
   </div>
   <h3 data-t>Selection</h3>
   <div id="props"></div>
@@ -158,10 +177,11 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "help": "<b>Ekle:</b> soldaki düğmeler · <b>Seç:</b> tıkla, Shift/Ctrl+tık ile ekle, boş alanda sürükleyerek kutu çiz · " +
       "<b>Taşı:</b> sürükle · <b>Bağla:</b> pinden pine sürükle · <b>Kaydır:</b> Boşluk+sürükle ya da orta tuş · <b>Yakınlaştır:</b> tekerlek<br>" +
       "<b>Kısayollar:</b> Ctrl+A tümü · Ctrl+C/X/V kopyala/kes/yapıştır · Ctrl+D çoğalt · Ctrl+Z/Y geri al/yinele · Delete sil · Esc seçimi bırak<br>" +
-      "<b>Çift tık:</b> kapıya, tele, porta ya da etikete isim ver · <b>Tel:</b> seçince ortadaki tutamağı sürükle · <b>Etiket:</b> aynı isimli etiketler bağlıdır",
+      "<b>Çift tık:</b> kapıya, tele, porta ya da etikete isim ver · <b>Tel:</b> seçince ortadaki tutamağı sürükle · <b>Etiket:</b> aynı isimli etiketler bağlıdır<br>" +
+      "<b>Bus:</b> seçim panelinde bit sayısını ayarla; kapılar, çıkışlar ve etiketler genişliği bağlandıkları telden alır · <b>Ayır / Birleştir:</b> bus ↔ tek bitler",
     "Converting {m} to gates…": "{m} kapılara dönüştürülüyor…",
     "{m}: {n} gates and flip-flops (Ctrl+Z brings back the previous drawing)": "{m}: {n} kapı ve flip-flop (önceki çizim için Ctrl+Z)",
-    "multi-bit ports split into one port per bit: ": "çok bitli portlar bit bit ayrıldı: ",
+    "ports wider than {n} bits split into one port per bit: {p}": "{n} bitten geniş portlar bit bit ayrıldı: {p}",
     "Name for this port": "Bu port için isim", "Copied.": "Kopyalandı.", "Saved {f}; opening the viewer…": "{f} kaydedildi; görüntüleyici açılıyor…",
     "Saving and opening needs the launcher (run `veriview` or `veriview --editor`). Use Download Verilog instead.":
       "Kaydedip açmak için launcher gerekli (`veriview` ya da `veriview --editor`). Bunun yerine Verilog'u indir.",
@@ -185,6 +205,23 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "Net label: labels with the same name are connected (no wire needed)": "Net etiketi: aynı isimli etiketler birbirine bağlıdır (tel gerekmez)",
     "label {name} has several drivers": "{name} etiketinin birden fazla sürücüsü var",
     "label {name} has no driver (tied to 0)": "{name} etiketinin sürücüsü yok (0'a bağlandı)",
+    "Blocks": "Bloklar", "N-bit constant": "N-bit sabit", "Split": "Ayır", "Merge": "Birleştir", "Constant": "Sabit",
+    "Constant with several bits (value in the selection panel)": "Çok bitli sabit (değeri seçim panelinden)",
+    "Adder: S = A + B + CIN, COUT = carry": "Toplayıcı: S = A + B + CIN, COUT = elde",
+    "Subtractor: Y = A - B, BOUT = borrow (A < B)": "Çıkarıcı: Y = A - B, BOUT = borç (A < B)",
+    "Comparator (unsigned): EQ, LT, GT": "Karşılaştırıcı (işaretsiz): EQ (eşit), LT (küçük), GT (büyük)",
+    "Multiplexer with N data inputs: Y = D[S]": "N veri girişli çoklayıcı: Y = D[S]",
+    "Decoder: one-hot output, Y = 1 << A": "Kod çözücü: tek-sıcak çıkış, Y = 1 << A",
+    "Register: Q <= D on the clock edge when EN = 1; RST_N clears it (EN, RST_N optional)":
+      "Register: EN = 1 iken saat kenarında Q <= D; RST_N sıfırlar (EN, RST_N isteğe bağlı)",
+    "Counter: Q <= Q + 1 on the clock edge when EN = 1; RST_N clears it (EN, RST_N optional)":
+      "Sayaç: EN = 1 iken saat kenarında Q <= Q + 1; RST_N sıfırlar (EN, RST_N isteğe bağlı)",
+    "Splitter: a bus into single bits (B0 = least significant bit)": "Ayırıcı: bus'ı tek tek bitlere ayırır (B0 = en düşük bit)",
+    "Merger: single bits into a bus (B0 = least significant bit)": "Birleştirici: bitleri bir bus'ta toplar (B0 = en düşük bit)",
+    "Bits (width)": "Bit sayısı (genişlik)", "Input bits (outputs: 2^bits)": "Giriş bitleri (çıkış: 2^bit)",
+    "Width: {n} bit(s), from its driver": "Genişlik: {n} bit, sürücüsünden", "Value (decimal)": "Değer (onluk)",
+    "Data inputs": "Veri girişi sayısı",
+    "width mismatch: {a} bits into {pin} of {node} ({b} bits)": "genişlik uyuşmuyor: {node} {pin} girişine {a} bit geliyor ({b} bit bekleniyor)",
     "Drag the handle to move the wire; double-click it to reset.": "Teli kaydırmak için tutamağı sürükle; sıfırlamak için çift tıkla.",
   };
   let LANG = "en";
@@ -197,7 +234,8 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "<b>Add:</b> buttons on the left · <b>Select:</b> click, Shift/Ctrl+click to add, drag on empty space for a box · " +
     "<b>Move:</b> drag · <b>Connect:</b> drag from pin to pin · <b>Pan:</b> Space+drag or middle button · <b>Zoom:</b> wheel<br>" +
     "<b>Keys:</b> Ctrl+A all · Ctrl+C/X/V copy/cut/paste · Ctrl+D duplicate · Ctrl+Z/Y undo/redo · Delete · Esc deselect<br>" +
-    "<b>Double-click:</b> name a gate, wire, port or label · <b>Wire:</b> select it and drag the handle in its middle · <b>Label:</b> labels with the same name are connected";
+    "<b>Double-click:</b> name a gate, wire, port or label · <b>Wire:</b> select it and drag the handle in its middle · <b>Label:</b> labels with the same name are connected<br>" +
+    "<b>Buses:</b> set the bits in the selection panel; gates, outputs and labels take the width of what drives them · <b>Split / Merge:</b> bus ↔ single bits";
   $("btn-lang").textContent = LANG === "tr" ? "EN" : "TR";
   $("btn-lang").onclick = () => { try { localStorage.setItem("veriview-lang", LANG === "tr" ? "en" : "tr"); } catch (e) {} location.reload(); };
   const root = document.documentElement;
@@ -211,11 +249,17 @@ const EDITOR = /*__EDITOR_DATA__*/null;
   // ---- model ----------------------------------------------------------------------------
   // node: {id, type, x, y, name? (ports), label? (net a gate drives), n? (inputs)};
   // wire: {id, from: {node, pin}, to: {node, pin}} (from = an output pin)
-  const { GATE2, pinsOf } = VVEditor;
-  const PORTS = ["in", "out", "const0", "const1", "tag"];
+  const { GATE2, BLOCK_TYPES, pinsOf } = VVEditor;
+  const PORTS = VVEditor.PORT_TYPES;
+  const isBlock = (nd) => BLOCK_TYPES.includes(nd.type);
   const sizeOf = (nd) => {
     if (nd.type === "in" || nd.type === "out") return { w: 70, h: 30 };
+    if (nd.type === "const") return { w: 56, h: 30 };
     if (nd.type.startsWith("const")) return { w: 36, h: 30 };
+    if (isBlock(nd)) {
+      const p = pinsOf(nd), n = Math.max(p.ins.length, p.outs.length);
+      return { w: nd.type === "split" || nd.type === "merge" ? 50 : 90, h: Math.max(50, 20 * n + 14) };
+    }
     if (nd.type === "tag") return { w: Math.max(50, 22 + String(nd.name || "").length * 7.4), h: 24 };
     if (nd.type === "dff" || nd.type === "dffr") return { w: 70, h: nd.type === "dffr" ? 80 : 64 };
     if (nd.type === "mux") return { w: 50, h: 70 };
@@ -225,7 +269,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
   const pinPos = (nd, pin, isOut) => {
     const { w, h } = sizeOf(nd), p = pinsOf(nd);
     if (nd.type === "tag") return { x: nd.x, y: nd.y + h / 2 };   // one pin, both directions
-    if (isOut) return { x: nd.x + w, y: nd.y + h / 2 };
+    if (isOut) { const i = Math.max(0, p.outs.indexOf(pin)); return { x: nd.x + w, y: nd.y + (h * (i + 1)) / (p.outs.length + 1) }; }
     if (nd.type === "mux" && pin === "S") return { x: nd.x + w / 2, y: nd.y + h - 6 };
     const ins = nd.type === "mux" ? ["A", "B"] : p.ins;
     const i = ins.indexOf(pin);
@@ -290,7 +334,30 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       g.append(el("text", { class: "lbl", x: 14, y: h / 2 + 4 }, nd.name));
       return g;
     }
-    if (t === "in") g.append(el("path", { class: "body", d: `M0 0 H${w - 12} L${w} ${h / 2} L${w - 12} ${h} H0 Z` }));
+    if (isBlock(nd)) {
+      const b = el("g", { class: "blk" });
+      b.append(el("rect", { class: "body", width: w, height: h, rx: 4 }));
+      const p = pinsOf(nd), z = { ...nd, x: 0, y: 0 }, small = t === "split" || t === "merge";
+      for (const pin of p.ins) {
+        const pp = pinPos(z, pin, false);
+        if (pin === "CLK") b.append(el("path", { class: "body", d: `M0 ${pp.y - 6} L9 ${pp.y} L0 ${pp.y + 6}`, fill: "none" }));
+        b.append(el("text", { class: "pinname", x: pin === "CLK" ? 12 : 6, y: pp.y + 3.5 }, small ? pin.slice(1) : pin));
+      }
+      for (const pin of p.outs) {
+        const pp = pinPos(z, pin, true);
+        b.append(el("text", { class: "pinname", x: w - 6, y: pp.y + 3.5, "text-anchor": "end" }, small ? pin.slice(1) : pin));
+      }
+      if (!small) {
+        const title = { add: "+", sub: "−", cmp: "=?", muxn: "MUX", dec: "DEC", reg: "REG", cnt: "+1" }[t];
+        b.append(el("text", { x: w / 2, y: h / 2 + 4, "text-anchor": "middle", style: "font-weight:700" }, title));
+      }
+      g.append(b);
+    }
+    else if (t === "const") {
+      g.append(el("rect", { class: "body", width: w, height: h, rx: 4 }));
+      g.append(el("text", { x: w / 2, y: h / 2 + 4, "text-anchor": "middle" }, String(Math.floor(+nd.value || 0))));
+    }
+    else if (t === "in") g.append(el("path", { class: "body", d: `M0 0 H${w - 12} L${w} ${h / 2} L${w - 12} ${h} H0 Z` }));
     else if (t === "out") g.append(el("path", { class: "body", d: `M12 0 H${w} V${h} H12 L0 ${h / 2} Z` }));
     else if (t.startsWith("const")) g.append(el("rect", { class: "body", width: w, height: h, rx: 4 }));
     else if (t === "and" || t === "nand") g.append(el("path", { class: "body", d: `M0 0 H${bw / 2} A${bw / 2} ${h / 2} 0 0 1 ${bw / 2} ${h} H0 Z` }));
@@ -310,9 +377,13 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     }
     if (bubble) g.append(el("circle", { class: "body", cx: w - 4, cy: h / 2, r: 4 }));
     if (t === "in" || t === "out") g.append(el("text", { x: t === "out" ? 18 : 6, y: h / 2 + 4 }, nd.name));
-    if (t.startsWith("const")) g.append(el("text", { x: w / 2 - 4, y: h / 2 + 4 }, t === "const1" ? "1" : "0"));
+    if (t === "const0" || t === "const1") g.append(el("text", { x: w / 2 - 4, y: h / 2 + 4 }, t === "const1" ? "1" : "0"));
+    const bits = widthOf(nd);
+    if (t === "const") g.append(el("text", { class: "kind", x: 0, y: -4 }, `${bits}'d`));
+    if ((t === "in" || t === "out") && bits > 1) g.append(el("text", { class: "kind", x: 0, y: -4 }, `[${bits - 1}:0]`));
     if (!PORTS.includes(t)) {
-      const kind = t === "dffr" ? "DFF+R" : t.toUpperCase();
+      const KIND = { dffr: "DFF+R", muxn: `MUX ${pinsOf(nd).ins.length - 1}:1`, dec: `DEC ${bits}→${2 ** bits}`, split: "SPLIT", merge: "MERGE" };
+      const kind = (KIND[t] || t.toUpperCase()) + (bits > 1 && t !== "dec" ? ` ·${bits}` : "");
       g.append(el("text", { class: "kind", x: 0, y: -4 }, kind));
       if (nd.label) g.append(el("text", { class: "lbl", x: kind.length * 6.6 + 6, y: -4 }, nd.label));
     }
@@ -329,8 +400,10 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     return { d: `M${a.x} ${a.y} H${a.x + 12} V${my} H${b.x - 12} V${b.y} H${b.x}`, hx: (a.x + b.x) / 2, hy: my, axis: "y" };
   };
   const route = (a, b, w) => geom(a, b, w).d;
-  let rubber = null;
+  let rubber = null, AN = null;
+  const widthOf = (nd) => (AN ? AN.width(nd) : 1);
   function draw() {
+    AN = VVEditor.analyze(D);
     svg.textContent = "";
     const defs = el("defs", {});
     const pat = el("pattern", { id: "grid", width: 20, height: 20, patternUnits: "userSpaceOnUse" });
@@ -343,7 +416,10 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       const a = nodes[w.from.node], b = nodes[w.to.node];
       if (!a || !b) continue;
       const pa = pinPos(a, w.from.pin, true), d = route(pa, pinPos(b, w.to.pin, false), w);
-      svg.append(el("path", { class: "wire" + (sel.wires.has(w.id) ? " sel" : ""), d }));
+      const bw = AN.outW(a, a.type === "tag" ? "T" : w.from.pin);
+      svg.append(el("path", { class: "wire" + (bw > 1 ? " bus" : "") + (sel.wires.has(w.id) ? " sel" : ""), d }));
+      const key = `${a.id}:${w.from.pin}`;
+      if (bw > 1 && !labelled.has(key)) { labelled.add(key); svg.append(el("text", { class: "wbits", x: pa.x + 6, y: pa.y + 13 }, String(bw))); }
       svg.append(el("path", { class: "wire-hit", d, "data-wire": w.id }));
       if (a.label && !labelled.has(a.id) && !PORTS.includes(a.type)) {   // net name once, next to the driving pin
         labelled.add(a.id);
@@ -360,7 +436,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       }
       for (const pin of p.ins) {
         const pp = pinPos({ ...nd, x: 0, y: 0 }, pin, false);
-        g.append(el("circle", { class: "pin" + (connected.has(`${nd.id}:${pin}`) ? "" : " free"), cx: pp.x, cy: pp.y, r: 5, "data-pin": pin, "data-dir": "in" }));
+        g.append(el("circle", { class: "pin" + (connected.has(`${nd.id}:${pin}`) || VVEditor.isOptional(nd, pin) ? "" : " free"), cx: pp.x, cy: pp.y, r: 5, "data-pin": pin, "data-dir": "in" }));
       }
       for (const pin of p.outs) {
         const pp = pinPos({ ...nd, x: 0, y: 0 }, pin, true);
@@ -403,7 +479,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       if (nd.type === "in") { const p = document.createElement("div"); p.textContent = _t("This wire comes from input {name}: rename the input port.", { name: nd.name }); box.append(p); return; }
       if (nd.type.startsWith("const")) { const p = document.createElement("div"); p.textContent = _t("Constant wires have no name."); box.append(p); return; }
     } else what.textContent = nd.type === "tag" ? _t("Label") : nd.type === "in" || nd.type === "out" ? (nd.type === "in" ? _t("Input") : _t("Output"))
-      : nd.type.startsWith("const") ? "const" : (nd.type === "dffr" ? "DFF+R" : nd.type.toUpperCase()) + nd.id;
+      : nd.type.startsWith("const") ? _t("Constant") : (nd.type === "dffr" ? "DFF+R" : nd.type === "muxn" ? "MUX N:1 " : nd.type.toUpperCase()) + nd.id;
     const field = (labelText, value, placeholder, onSet) => {
       const l = document.createElement("label"); l.textContent = labelText;
       const i = document.createElement("input"); i.type = "text"; i.value = value || ""; i.placeholder = placeholder || ""; i.id = "prop-name"; i.spellcheck = false;
@@ -418,7 +494,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     else if (nd.type === "tag") field(_t("Label name (same name = same net)"), nd.name, "", (v) => { if (v) nd.name = v; });
     else if (!nd.type.startsWith("const")) {
       field(viaWire ? _t("Net name (all wires from this output)") : _t("Net name (the wire this gate drives)"), nd.label,
-        _t("automatic") + `: ${nd.type === "dff" || nd.type === "dffr" ? "q" : nd.type}${nd.id}`, (v) => { if (v) nd.label = v; else delete nd.label; });
+        _t("automatic") + `: ${nd.type === "dff" || nd.type === "dffr" ? "q" : nd.type}${nd.id}` + (nd.type === "cmp" ? "_eq…" : ""), (v) => { if (v) nd.label = v; else delete nd.label; });
     }
     if (!viaWire && GATE2.includes(nd.type)) {
       const l = document.createElement("label"); l.textContent = _t("Inputs");
@@ -430,7 +506,25 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       }
       box.append(l, row);
     }
-    if (!viaWire && nd.type.startsWith("const")) {
+    const numField = (labelText, value, placeholder, lo, hi, onSet) => {
+      const l = document.createElement("label"); l.textContent = labelText;
+      const i = document.createElement("input"); i.type = "number"; i.min = lo; i.max = hi; i.value = value === undefined ? "" : value; i.placeholder = placeholder || "";
+      const apply = () => { const v = i.value.trim(); onSet(v === "" ? undefined : Math.max(lo, Math.min(hi, Math.round(+v) || lo))); prune(); commit(); draw(); };
+      i.onchange = apply;
+      i.onblur = () => setTimeout(renderProps);
+      i.onkeydown = (e) => { if (e.key === "Enter") { apply(); i.blur(); } if (e.key === "Escape") i.blur(); };
+      box.append(l, i);
+    };
+    if (!viaWire && nd.type !== "tag" && nd.type !== "const0" && nd.type !== "const1") {
+      const auto = VVEditor.AUTO.has(nd.type), lim = nd.type === "dec" ? 5 : nd.type === "split" || nd.type === "merge" ? 32 : 64;
+      numField(nd.type === "dec" ? _t("Input bits (outputs: 2^bits)") : _t("Bits (width)"), nd.bits,
+        auto ? _t("automatic") + `: ${widthOf(nd)}` : "", nd.type === "split" || nd.type === "merge" ? 2 : 1, lim,
+        (v) => { if (v === undefined && !auto) return; if (v === undefined) delete nd.bits; else nd.bits = v; });
+    }
+    if (!viaWire && nd.type === "tag") { const p = document.createElement("div"); p.textContent = _t("Width: {n} bit(s), from its driver", { n: widthOf(nd) }); box.append(p); }
+    if (!viaWire && nd.type === "const") numField(_t("Value (decimal)"), nd.value || 0, "", 0, 2 ** Math.min(widthOf(nd), 52) - 1, (v) => { nd.value = v || 0; });
+    if (!viaWire && nd.type === "muxn") numField(_t("Data inputs"), nd.k || 4, "", 2, 16, (v) => { nd.k = v || 4; });
+    if (!viaWire && (nd.type === "const0" || nd.type === "const1")) {
       const l = document.createElement("label"); l.textContent = _t("Value");
       const row = document.createElement("div"); row.className = "row";
       for (const v of ["0", "1"]) {
@@ -443,6 +537,11 @@ const EDITOR = /*__EDITOR_DATA__*/null;
   }
 
   // ---- editing ---------------------------------------------------------------------------
+  function prune() {
+    const nodes = byId();
+    const ok = (nd, pin, out) => nd && (nd.type === "tag" || (out ? pinsOf(nd).outs : pinsOf(nd).ins).includes(pin));
+    D.wires = D.wires.filter((w) => ok(nodes[w.from.node], w.from.pin, true) && ok(nodes[w.to.node], w.to.pin, false));
+  }
   const usedNames = () => new Set(D.nodes.flatMap((n) => [n.name, n.label]).filter(Boolean));
   const uniqueName = (base, used = usedNames()) => {
     if (!used.has(base)) return base;
@@ -457,6 +556,9 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     if (type === "out") nd.name = uniqueName("y");
     if (type === "tag") nd.name = "net" + (D.nodes.filter((n) => n.type === "tag").length + 1);
     if (GATE2.includes(type)) nd.n = 2;
+    if (isBlock(nd) || type === "const") nd.bits = VVEditor.defaultBits(nd);
+    if (type === "muxn") nd.k = 4;
+    if (type === "const") nd.value = 0;
     D.nodes.push(nd);
     clearSel(); sel.nodes.add(nd.id);
     commit(); draw();
@@ -611,7 +713,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     drag = null;
   });
   // double-click: name things right where they are
-  function inlineEdit(cx, cy, value, placeholder, onSet) {
+  function inlineEdit(cx, cy, value, placeholder, onSet, valid = isIdent) {
     for (const x of document.querySelectorAll(".inline-edit")) x.remove();
     const box = $("canvas").getBoundingClientRect();
     const i = document.createElement("input");
@@ -623,16 +725,17 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     const finish = (ok) => {
       if (done) return;
       const v = i.value.trim();
-      if (ok && v && !isIdent(v)) { i.classList.add("bad"); return; }
+      if (ok && v && !valid(v)) { i.classList.add("bad"); return; }
       done = true; i.remove();
       if (ok && v !== (value || "")) { onSet(v); commit(); draw(); }
     };
-    i.oninput = () => i.classList.toggle("bad", !!i.value && !isIdent(i.value.trim()));
+    i.oninput = () => i.classList.toggle("bad", !!i.value && !valid(i.value.trim()));
     i.onkeydown = (ev) => { ev.stopPropagation(); if (ev.key === "Enter") finish(true); if (ev.key === "Escape") finish(false); };
     i.onblur = () => finish(true);
     setTimeout(() => { i.focus(); i.select(); });
   }
   function renameNode(nd, cx, cy) {
+    if (nd.type === "const") { inlineEdit(cx, cy, String(nd.value || 0), "", (v) => { nd.value = Math.max(0, Math.round(+v) || 0); }, (v) => /^\d+$/.test(v)); return; }
     if (nd.type.startsWith("const")) { nd.type = nd.type === "const0" ? "const1" : "const0"; commit(); draw(); return; }
     if (nd.type === "in" || nd.type === "out" || nd.type === "tag") {
       inlineEdit(cx, cy, nd.name, "", (v) => { if (v) nd.name = v; });
@@ -685,7 +788,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     $("verilog").innerHTML = text.split("\n").map((l) => {
       const i = l.indexOf("//");
       const code = i >= 0 ? l.slice(0, i) : l, com = i >= 0 ? l.slice(i) : "";
-      return esc(code).replace(KW, '<span class="k">$1</span>').replace(/\b1'b[01]\b/g, '<span class="n">$&</span>') + (com ? `<span class="c">${esc(com)}</span>` : "");
+      return esc(code).replace(KW, '<span class="k">$1</span>').replace(/\b\d+'[bd]\d+\b/g, '<span class="n">$&</span>') + (com ? `<span class="c">${esc(com)}</span>` : "");
     }).join("\n");
     $("warnings").innerHTML = warn.map((w) => `<div>⚠ ${esc(w)}</div>`).join("");
     const gates = D.nodes.filter((n) => !PORTS.includes(n.type)).length;
@@ -774,7 +877,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       $("modname").value = r.module;
       clearSel(); commit(); fitAll(); draw();
       const gates = r.nodes.filter((n) => !PORTS.includes(n.type)).length;
-      const notes = (r.warn || []).map((w) => w.startsWith("multi-bit ports split") ? _t("multi-bit ports split into one port per bit: ") + w.split(": ").pop() : w);
+      const notes = (r.warn || []).map((w) => { const m = /^ports wider than (\d+) bits split into one port per bit: (.*)$/.exec(w); return m ? _t("ports wider than {n} bits split into one port per bit: {p}", { n: m[1], p: m[2] }) : w; });
       $("status").textContent = [_t("{m}: {n} gates and flip-flops (Ctrl+Z brings back the previous drawing)", { m: r.module, n: gates }), ...notes].join(" · ");
       clearTimeout(flash.t); flash.t = setTimeout(generate, 6000);
     }).catch((e) => { generate(); alert(String(e)); });

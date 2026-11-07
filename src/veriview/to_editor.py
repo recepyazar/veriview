@@ -19,6 +19,7 @@ from typing import Any
 from .log import VeriViewError
 
 MAX_CELLS = 1500
+MAX_BUS = 32
 
 # yosys cell type -> (editor type, {yosys pin: editor pin}, output pin)
 CELLS: dict[str, tuple[str, dict[str, str], str]] = {
@@ -64,6 +65,8 @@ def _ident(name: str) -> str | None:
 
 
 def _size(nd: dict[str, Any]) -> tuple[int, int]:
+    if nd["type"] in ("split", "merge"):
+        return 50, max(50, 20 * nd["bits"] + 14)
     return SIZE.get(nd["type"], (64, 44))
 
 
@@ -102,25 +105,41 @@ def netlist_to_design(netlist: dict[str, Any], module: str | None = None) -> dic
     sinks: list[tuple[Any, dict[str, Any], str]] = []    # (bit or constant, node, input pin)
     port_names: set[str] = set()
     split: list[str] = []
+    direct: list[tuple[dict[str, Any], str, dict[str, Any], str]] = []   # wires between port and splitter/merger
 
-    def port_bit_name(pname: str, i: int, width: int) -> str:
-        base = _ident(pname) or "p"
-        return base if width == 1 else f"{base}_{i}"
-
+    # buses: input -> splitter (one output per bit), merger -> output; wider than 32 bits: one port per bit
     for pname, p in mod.get("ports", {}).items():
         bits = p.get("bits", [])
+        base = _ident(pname) or "p"
+        is_in = p.get("direction") == "input"
+        if p.get("direction") == "inout":
+            warn.append(f"inout port {pname} drawn as an output")
+        if 1 < len(bits) <= MAX_BUS:
+            port_names.add(base)
+            if is_in:
+                pn = new_node(type="in", name=base, bits=len(bits))
+                sp = new_node(type="split", bits=len(bits))
+                direct.append((pn, "Y", sp, "A"))
+                for i, b in enumerate(bits):
+                    if isinstance(b, int):
+                        driver.setdefault(b, (sp, f"B{i}"))
+            else:
+                mg = new_node(type="merge", bits=len(bits))
+                pn = new_node(type="out", name=base)
+                direct.append((mg, "Y", pn, "A"))
+                for i, b in enumerate(bits):
+                    sinks.append((b, mg, f"B{i}"))
+            continue
         if len(bits) > 1:
             split.append(pname)
         for i, b in enumerate(bits):
-            nm = port_bit_name(pname, i, len(bits))
+            nm = base if len(bits) == 1 else f"{base}_{i}"
             port_names.add(nm)
-            if p.get("direction") == "input":
+            if is_in:
                 nd = new_node(type="in", name=nm)
                 if isinstance(b, int):
                     driver.setdefault(b, (nd, "Y"))
             else:
-                if p.get("direction") == "inout":
-                    warn.append(f"inout port {pname} drawn as an output")
                 nd = new_node(type="out", name=nm)
                 sinks.append((b, nd, "A"))
     for cname, c in sorted(cells.items()):
@@ -134,7 +153,7 @@ def netlist_to_design(netlist: dict[str, Any], module: str | None = None) -> dic
             elif ypin in pins:
                 sinks.append((bits[0] if bits else "x", nd, pins[ypin]))
     if split:
-        warn.append("multi-bit ports split into one port per bit: " + ", ".join(split))
+        warn.append(f"ports wider than {MAX_BUS} bits split into one port per bit: " + ", ".join(split))
 
     # public net names -> labels of the gates that drive them
     taken = set(port_names)
@@ -144,7 +163,7 @@ def netlist_to_design(netlist: dict[str, Any], module: str | None = None) -> dic
         bits = v.get("bits", [])
         for i, b in enumerate(bits):
             d = driver.get(b) if isinstance(b, int) else None
-            if not d or d[0]["type"] == "in" or d[0].get("label"):
+            if not d or d[0]["type"] in ("in", "split") or d[0].get("label"):
                 continue
             label = _ident(nname if len(bits) == 1 else f"{nname}_{i}")
             if label and label not in taken:
@@ -162,6 +181,8 @@ def netlist_to_design(netlist: dict[str, Any], module: str | None = None) -> dic
         cn = new_node(type="const1" if b == "1" else "const0")
         consts.append((cn, nd, pin))
         wires.append({"id": 0, "from": {"node": cn["id"], "pin": "Y"}, "to": {"node": nd["id"], "pin": pin}})
+    for a, ap, b, bp in direct:
+        wires.append({"id": 0, "from": {"node": a["id"], "pin": ap}, "to": {"node": b["id"], "pin": bp}})
     for w in wires:
         w["id"] = seq[0]
         seq[0] += 1
@@ -178,6 +199,8 @@ def _in_pin(nd: dict[str, Any], pin: str) -> tuple[float, float]:
     t = nd["type"]
     if t == "mux" and pin == "S":
         return nd["x"] + w / 2, nd["y"] + h - 6
+    if t == "merge":
+        return nd["x"], nd["y"] + h * (int(pin[1:]) + 1) / (nd["bits"] + 1)
     ins = {"mux": ["A", "B"], "dff": ["D", "CLK"], "dffr": ["D", "CLK", "RST_N"], "out": ["A"],
            "not": ["A"], "buf": ["A"]}.get(t, ["A", "B", "C", "D"][:nd.get("n", 2)])
     i = ins.index(pin) if pin in ins else 0
@@ -202,9 +225,9 @@ def _layout(nodes: list[dict[str, Any]], wires: list[dict[str, Any]], consts: li
     for n in nodes:
         if n["type"] == "in":
             level[n["id"]] = 0
-        elif n["type"] in ("dff", "dffr"):
+        elif n["type"] in ("dff", "dffr", "split"):
             level[n["id"]] = 1
-    gates = [n for n in nodes if n["type"] not in ("in", "out", "dff", "dffr", "const0", "const1")]
+    gates = [n for n in nodes if n["type"] not in ("in", "out", "dff", "dffr", "const0", "const1", "split", "merge")]
 
     # longest path from inputs / register outputs (bounded: tolerates combinational loops)
     def lv(nid: int, stack: set[int]) -> int:
@@ -227,8 +250,10 @@ def _layout(nodes: list[dict[str, Any]], wires: list[dict[str, Any]], consts: li
         sys.setrecursionlimit(old)
     last = max(level.values(), default=0) + 1
     for n in nodes:
-        if n["type"] == "out":
+        if n["type"] == "merge":
             level[n["id"]] = last
+        elif n["type"] == "out":
+            level[n["id"]] = last + 1
     cols: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for n in nodes:
         if n["id"] in level:

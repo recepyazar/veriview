@@ -296,6 +296,18 @@ input logic [DATA_WIDTH-1:0] i_data [NUM_INPUTS],
 
 sv2v converts these into packed vectors, so in the schematic they appear as one wide bus (e.g. `i_data[15:0]`).
 
+yosys-slang is used as a plugin or compiled into Yosys. Point VeriView at a specific Yosys with `VERIVIEW_YOSYS=/path/to/yosys`; if the default one has no slang, a Yosys with slang inside the project (e.g. `tools/install/bin/yosys` built by the project's setup script) is found and used.
+
+### Big designs
+
+VeriView was taken through a 64-bit out-of-order RISC-V core (about 60 files, 200 modules, 37 000 cells in the optimized view, a vendored FPU in `third_party/`). What that needed, and now happens by itself:
+
+- **Missing files are found in the project.** Opening a folder (or one file) of a bigger project usually misses packages, sub-modules and `include folders that live elsewhere (`import fpnew_pkg::*;` from `third_party/...`). VeriView looks the missing names up in the git work tree around the sources (skipping other repositories inside it, such as tool sources), adds the files that define them and logs each one. A `.f` file list or `VERIVIEW_NO_DEPS=1` turns this off.
+- **Simulation-only code becomes a black box.** A module slang cannot synthesize (a DRAM model calling DPI functions, for example) is retried as a black box, with a warning, so the rest of the design shows. A top module that only works in simulation (`$value$plusargs`, ...) gets a clear message with synthesizable sub-modules to use as top instead; the start page offers them as links.
+- **slang's limits:** long loops get a higher unroll limit automatically, the hierarchy is kept (`--keep-hierarchy`), and slang's diagnostics are shown instead of its AST dumps.
+- **Schematics:** netlistsvg runs through `netlistsvg_fast.js`, which replaces its bus split/join search (recursive and quadratic on wide buses: "Maximum call stack size exceeded") with an indexed loop that produces the identical drawing. Views above 300 cells use faster layout settings; views above 3000 cells (or flattened views above 400) are not drawn, nor are views whose layout takes over 2 minutes (`VERIVIEW_DRAW_TIMEOUT`) — they show a note, their sub-modules, the simulation and the timing analysis still work. One schematic failing never loses the whole viewer.
+- **The viewer file:** above 8 MB of data it is embedded gzip-compressed and unpacked by the browser (173 MB → 19 MB for the core); FSM extraction runs while the schematics are drawn; the start page shows the build's progress while a big design builds.
+
 ## File lists (.f)
 
 ```text

@@ -5,18 +5,38 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable, TypeVar
 
 from . import log
+from .deps import project_root
 from .filelist import SourceSet
 from .log import VeriViewError
-from .tools import find_tool, slang_available
+from .tools import find_tool, project_yosys_with_slang, slang_available, slang_has_option, slang_mode
 
 FRONTENDS = ("auto", "yosys", "sv2v", "slang")
 # Errors caused by the design/invocation itself rather than parser support.
 _DESIGN_ERROR_RE = re.compile(r"Module `[^']*' not found|Can't open include file")
+# where an error happened: yosys-slang's "Source line f.sv:12:5:", slang's "f.sv:12:5: error:"
+_ERR_LOC_RE = re.compile(r"^Source line (\S+?):(\d+)(?::\d+)?:|^(\S+?):(\d+):\d+: error:", re.M)
+_MODULE_RE = re.compile(r"^[ \t]*(?:macromodule|module)\s+(?:automatic\s+|static\s+)?(\w+)|^[ \t]*(endmodule)\b", re.M)
+MAX_BLACKBOXES = 8
+
+
+def summarize_error(text: str, max_lines: int = 25) -> str:
+    """The lines of a tool's error output that say something (yosys-slang dumps whole ASTs)."""
+    lines = [ln.rstrip() for ln in text.splitlines()]
+    keep = [ln for ln in lines if re.search(r"error|Source line|unimplemented|not found|failed", ln, re.I)]
+    if not keep:
+        keep = [ln for ln in lines if ln.strip() and ln.strip() not in ("{", "}", "[", "]", "},", "],")]
+    out = keep[:max_lines]
+    if len(keep) > max_lines:
+        out.append(f"... ({len(keep) - max_lines} more lines)")
+    return "\n".join(out)
+
+
 TOP_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 
 T = TypeVar("T")
@@ -85,6 +105,9 @@ def stage_commands(stage: str, flatten: bool) -> list[str]:
     return cmds
 
 
+_ANNOUNCED: set[str] = set()
+
+
 class Synthesizer:
     def __init__(self, sources: SourceSet, work_dir: Path, frontend: str = "auto", flatten: bool = False,
                  stage: str = "opt"):
@@ -93,12 +116,15 @@ class Synthesizer:
         self.frontend = frontend
         self.flatten = flatten
         self.stage = stage
-        self.yosys = find_tool("yosys") or "yosys"
+        self.yosys = os.environ.get("VERIVIEW_YOSYS") or find_tool("yosys") or "yosys"
         self._sv2v_out: Path | None = None
         self._incdir_links: list[str] | None = None
         self.selected: str | None = None
         self.last_error = ""
         self.errors: dict[str, str] = {}
+        self.blackbox: list[str] = []      # modules slang imports as black boxes (could not be elaborated)
+        self._top: str | None = None
+        self.unroll_limit: int | None = None   # read_slang --unroll-limit, raised when a loop needs it
 
     # --- frontend plumbing ----------------------------------------------------
 
@@ -107,6 +133,14 @@ class Synthesizer:
             return [self.frontend]
         cands = ["yosys"]
         if self.sources.has_systemverilog:
+            if not slang_available(self.yosys) and not os.environ.get("VERIVIEW_YOSYS"):
+                root = project_root(self.sources.files)
+                local = project_yosys_with_slang(str(root)) if root else None
+                if local:
+                    if local not in _ANNOUNCED:
+                        _ANNOUNCED.add(local)
+                        log.info(f"Using the project's Yosys with slang: {local}")
+                    self.yosys = local
             if slang_available(self.yosys):
                 cands.append("slang")
             if find_tool("sv2v"):
@@ -149,6 +183,19 @@ class Synthesizer:
         self._sv2v_out = out
         return out
 
+    def _slang_path(self, i: int, f: Path) -> str:
+        # read_slang takes its file names literally (quotes are not removed): paths with
+        # spaces are passed through space-free symlinks in the work dir
+        if not re.search(r"\s", str(f)):
+            return str(f)
+        link = self.work_dir / f"src{i}{f.suffix}"
+        if not link.exists():
+            try:
+                os.symlink(f.resolve(), link)
+            except OSError:
+                shutil.copyfile(f, link)
+        return str(link)
+
     def _read_commands(self, fe: str, top: str | None) -> list[str]:
         opts = "".join(f" -I {d}" for d in self._incdirs()) + "".join(f" -D {d}" for d in self.sources.defines)
         if fe == "yosys":
@@ -159,28 +206,103 @@ class Synthesizer:
         if fe == "sv2v":
             return [f"read_verilog {yosys_quote(self._run_sv2v().name)}"]
         if fe == "slang":
-            files = " ".join(yosys_quote(str(f)) for f in self.sources.files)
-            return ["plugin -i slang", f"read_slang{opts}{f' --top {top}' if top else ''} {files}"]
+            files = " ".join(self._slang_path(i, f) for i, f in enumerate(self.sources.files))
+            load = ["plugin -i slang"] if slang_mode(self.yosys) == "plugin" else []
+            # --keep-hierarchy: slang otherwise flattens the whole design into the top module
+            bb = "".join(f" --blackboxed-module {m}" for m in self.blackbox)
+            if self.unroll_limit:
+                bb += f" --unroll-limit={self.unroll_limit}"
+            return [*load, f"read_slang --keep-hierarchy{opts}{bb}{f' --top {top}' if top else ''} {files}"]
         raise ValueError(fe)
 
     def _yosys(self, fe: str, script: list[str], name: str) -> None:
         ys = self.work_dir / name
         ys.write_text("\n".join(script) + "\n")
         cwd = self.work_dir if fe == "sv2v" else None
-        r = subprocess.run([self.yosys, "-q", "-s", str(ys.resolve())], capture_output=True, text=True, cwd=cwd)
+        log_file = ys.with_suffix(".log")
+        r = subprocess.run([self.yosys, "-q", "-l", str(log_file.resolve()), "-s", str(ys.resolve())],
+                           capture_output=True, text=True, cwd=cwd)
         if r.returncode != 0:
-            raise FrontendError((r.stdout + r.stderr).strip())
+            # with -q, diagnostics (e.g. slang's "f.sv:12:5: error: ...") only reach the log file
+            try:
+                diag = [ln for ln in log_file.read_text(errors="replace").splitlines() if re.search(r": error: ", ln)]
+            except OSError:
+                diag = []
+            out = (r.stdout + r.stderr).strip()
+            raise FrontendError(summarize_error("\n".join([*dict.fromkeys(diag), out])))
+
+    def _module_at(self, file: str, line: int) -> str | None:
+        """The module whose text contains file:line (file as named in an error message)."""
+        cands = [f for f in self.sources.files if str(f) == file or f.as_posix().endswith("/" + file.lstrip("./"))
+                 or f.resolve() == Path(file).resolve()]
+        if not cands:
+            return None
+        try:
+            text = cands[0].read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        pos = sum(len(x) + 1 for x in text.split("\n")[: line - 1])
+        current = None
+        for m in _MODULE_RE.finditer(text):
+            if m.start() > pos:
+                break
+            current = None if m.group(2) else m.group(1)
+        return current
+
+    def _roots(self) -> set[str]:
+        """The top module, or (no top given) the modules no other module instantiates."""
+        if self._top:
+            return {self._top}
+        from .deps import scan
+        defined, used = set(), set()
+        for f in self.sources.files:
+            sc = scan(f)
+            defined |= sc[1]
+            used |= sc[3]
+        return defined - used
+
+    def _run(self, fe: str, action: Callable[[str], T]) -> T:
+        """action(fe); with slang, modules that cannot be elaborated for synthesis (e.g. simulation
+        models calling DPI functions) are retried as black boxes, so the rest of the design shows."""
+        while True:
+            try:
+                return action(fe)
+            except FrontendError as e:
+                if (fe != "slang" or len(self.blackbox) >= MAX_BLACKBOXES
+                        or not slang_has_option(self.yosys, "--blackboxed-module")):
+                    raise
+                err = str(e)
+                # long generate / for loops (cache arrays, tables): a higher unroll limit, not a black box
+                if "unroll limit" in err and (self.unroll_limit or 0) < 1_000_000:
+                    self.unroll_limit = 1_000_000
+                    log.info("A loop needs more than slang's default unroll limit: retrying with a higher one")
+                    continue
+                roots = self._roots()
+                mod = where = why = None
+                for m in _ERR_LOC_RE.finditer(err):
+                    f, ln = m.group(1) or m.group(3), int(m.group(2) or m.group(4))
+                    cand = self._module_at(f, ln)
+                    if cand and cand not in roots and cand not in self.blackbox:
+                        line = err[m.start():err.find("\n", m.start()) if "\n" in err[m.start():] else len(err)]
+                        if m.group(1):   # yosys-slang's "Source line": the reason is the ERROR line after it
+                            line = next((x for x in err[m.start():].splitlines() if "ERROR" in x), line)
+                        mod, where, why = cand, f"{f}:{ln}", line.strip()[:160]
+                        break
+                if not mod:
+                    raise
+                log.warn(f"Module {mod} cannot be synthesized (at {where}: {why}); it is shown as a black box")
+                self.blackbox.append(mod)
 
     def _with_frontend(self, action: Callable[[str], T]) -> T:
         if self.selected:
             try:
-                return action(self.selected)
+                return self._run(self.selected, action)
             except FrontendError as e:
                 raise VeriViewError(f"Synthesis failed.\n{e}") from e
         self.errors: dict[str, str] = {}
         for fe in self.candidates():
             try:
-                result = action(fe)
+                result = self._run(fe, action)
             except FrontendError as e:
                 self.last_error = str(e)
                 self.errors[fe] = self.last_error
@@ -194,6 +316,31 @@ class Synthesizer:
                 log.info(f"Frontend: {fe}")
             return result
         raise self._failure()
+
+    def _simulation_only_hint(self) -> str:
+        """For a top module that only works in simulation ($value$plusargs, DPI, ...): its sub-modules."""
+        err = self.errors.get("slang", "")
+        if not re.search(r"unsupported system task|DPI|Feature unimplemented", err):
+            return ""
+        from .deps import scan
+        tops = []
+        for m in _ERR_LOC_RE.finditer(err):
+            mod = self._module_at(m.group(1) or m.group(3), int(m.group(2) or m.group(4)))
+            if mod and mod not in self.blackbox and mod not in tops:
+                tops.append(mod)
+        if not tops:
+            return ""
+        defined = {n for f in self.sources.files for n in scan(f)[1]}
+        subs: list[str] = []
+        for f in self.sources.files:
+            if tops[0] in scan(f)[1]:
+                subs = sorted(n for n in scan(f)[3] & defined if n != tops[0] and n not in self.blackbox)
+        task = re.search(r"unsupported system task '([^']+)'", err)
+        what = f"the system task {task.group(1)}" if task else "code slang cannot synthesize"
+        hint = f"\n{tops[0]} uses {what}, which only works in simulation: it cannot be the top module of a schematic."
+        if subs:
+            hint += f"\nTry a synthesizable top module: {', '.join(subs)}"
+        return hint
 
     def _failure(self) -> VeriViewError:
         msg = "Synthesis failed."
@@ -214,13 +361,14 @@ class Synthesizer:
                 "\nYosys' built-in parser supports only part of SystemVerilog (e.g. no unpacked array ports)."
                 "\nInstall sv2v for full support: veriview --install-deps"
             )
-        return VeriViewError(msg)
+        return VeriViewError(msg + self._simulation_only_hint())
 
     # --- public API -----------------------------------------------------------
 
     def synthesize(self, top: str | None, json_out: Path, stage: str | None = None,
                    subst: dict[str, str] | None = None) -> None:
         """subst: extra {placeholder} replacements for the stage commands (see fsm.py)."""
+        self._top = top
         def action(fe: str) -> None:
             script = self._read_commands(fe, top)
             script.append(f"hierarchy -check -top {top}" if top else "hierarchy -check -auto-top")

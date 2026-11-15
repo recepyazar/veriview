@@ -216,12 +216,19 @@ def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, w
             json_path.write_text(json.dumps(netlist), encoding="utf-8")
 
     out = _output_path(args, inputs, ".html", stem)
-    fsms = _extract_fsms(args, synth, work)
-    for old, new in renamed.items():  # --select renames a parameterized root module
-        if old in fsms and old != new:
-            fsms[new] = fsms.pop(old)
-    build_viewer(stage_netlists, out, work, yosys=synth.yosys, skin=args.skin,
-                 default_stage=args.stage, default_flat=args.flatten, fsms=fsms, lang=args.lang)
+
+    def fsms_found() -> dict:
+        fsms = _extract_fsms(args, synth, work)
+        for old, new in renamed.items():  # --select renames a parameterized root module
+            if old in fsms and old != new:
+                fsms[new] = fsms.pop(old)
+        return fsms
+    # FSM extraction (another Yosys run) and drawing the schematics are independent: run them side by side
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fsm_job = pool.submit(fsms_found)
+        build_viewer(stage_netlists, out, work, yosys=synth.yosys, skin=args.skin,
+                     default_stage=args.stage, default_flat=args.flatten, fsms=fsm_job.result, lang=args.lang)
     if args.keep_json:
         for st in stage_netlists:
             shutil.copyfile(work / f"netlist_{st}.json", out.with_name(f"{out.stem}.{st}.json"))

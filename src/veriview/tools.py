@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import io
 import os
 import platform
@@ -35,12 +36,48 @@ def find_tool(name: str) -> str | None:
     return shutil.which(name, path=str(local_bin_dir()))
 
 
-def slang_available(yosys: str) -> bool:
+@functools.cache
+def slang_mode(yosys: str) -> str | None:
+    """How this Yosys reads SystemVerilog with slang: "builtin" (compiled in, e.g. a Yosys built
+    with yosys-slang), "plugin" (plugin -i slang), or None."""
+    def run(cmd: str) -> subprocess.CompletedProcess | None:
+        try:
+            return subprocess.run([yosys, "-p", cmd], capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return None
+    r = run("help read_slang")   # Yosys answers `help <unknown>` with exit code 0: look at the text
+    if r and r.returncode == 0 and "read_slang [options]" in r.stdout:
+        return "builtin"
+    r = run("plugin -i slang")
+    if r and r.returncode == 0:
+        return "plugin"
+    return None
+
+
+@functools.cache
+def slang_has_option(yosys: str, option: str) -> bool:
+    """Whether this Yosys' read_slang knows an option (yosys-slang versions differ)."""
+    load = "plugin -i slang; " if slang_mode(yosys) == "plugin" else ""
     try:
-        r = subprocess.run([yosys, "-q", "-p", "plugin -i slang"], capture_output=True, timeout=60)
-        return r.returncode == 0
+        r = subprocess.run([yosys, "-p", f"{load}help read_slang"], capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return False
+    return option in r.stdout
+
+
+def slang_available(yosys: str) -> bool:
+    return slang_mode(yosys) is not None
+
+
+@functools.cache
+def project_yosys_with_slang(root: str) -> str | None:
+    """A Yosys with slang inside the project (e.g. tools/install/bin/yosys built by the project's setup
+    script): big SystemVerilog designs often only parse with it."""
+    for pattern in ("bin/yosys", "*/bin/yosys", "*/*/bin/yosys", "*/*/*/bin/yosys"):
+        for cand in sorted(Path(root).glob(pattern)):
+            if cand.is_file() and os.access(cand, os.X_OK) and slang_available(str(cand)):
+                return str(cand)
+    return None
 
 
 MIN_YOSYS = (0, 40)

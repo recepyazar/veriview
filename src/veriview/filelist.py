@@ -118,7 +118,7 @@ def parse_filelist(path: Path, out: SourceSet, _seen: set[Path] | None = None) -
     return out
 
 
-def collect_sources(inputs: list[str], incdirs: list[str], defines: list[str]) -> SourceSet:
+def collect_sources(inputs: list[str], incdirs: list[str], defines: list[str], resolve: bool = True) -> SourceSet:
     out = SourceSet(incdirs=[Path(d) for d in incdirs], defines=list(defines))
     for item in inputs:
         p = Path(item)
@@ -127,4 +127,22 @@ def collect_sources(inputs: list[str], incdirs: list[str], defines: list[str]) -
         else:
             out.files.append(p)
     out.validate()
+    if resolve and os.environ.get("VERIVIEW_NO_DEPS") != "1":
+        add_missing(out)
     return out
+
+
+def add_missing(out: SourceSet) -> None:
+    """Add the project files defining packages / modules / includes the sources use but lack (deps.py)."""
+    from . import deps
+    added, incs, notes = deps.resolve(out.files, out.incdirs)
+    if not (added or incs):
+        return
+    log.info(f"Added {len(added)} file(s) and {len(incs)} include folder(s) the design uses from the project "
+             "(set VERIVIEW_NO_DEPS=1 or use a .f file list to turn this off):")
+    for n in notes[:30]:
+        log.info(f"  + {n}")
+    if len(notes) > 30:
+        log.info(f"  + ... {len(notes) - 30} more")
+    out.files = deps.order_packages_first([*out.files, *added])
+    out.incdirs += incs

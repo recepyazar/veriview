@@ -10,15 +10,19 @@ without a server or network access.
 
 from __future__ import annotations
 
+import base64
+import gzip
 import json
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import __version__, log
-from .render import run_netlistsvg
+from .log import VeriViewError
+from .render import DrawTimeout, run_netlistsvg
 from .scope import TOP_ATTR, find_top, postprocess, reroot, user_children
 
 TEMPLATE = Path(__file__).with_name("viewer.html")
@@ -47,9 +51,12 @@ def decode_param(value: str) -> str:
 
 
 def display_name(module: str, attrs: dict[str, Any] | None = None) -> str:
-    """'$paramod\\b2g\\WIDTH=s32'..011' -> 'b2g (WIDTH=3)'."""
+    """'$paramod\\b2g\\WIDTH=s32'..011' -> 'b2g (WIDTH=3)'; slang's 'kz_alu$top.u_alu' -> 'kz_alu'."""
     m = _PARAMOD_RE.match(module)
     if not m:
+        # yosys-slang (--keep-hierarchy) names each specialization <module>$<instance path>
+        if "$" in module and not module.startswith("$"):
+            return module.split("$", 1)[0]
         return module
     # older Yosys versions store hdlname with a leading backslash
     base = ((attrs or {}).get("hdlname") or m.group(1)).lstrip("\\")
@@ -147,6 +154,48 @@ def collect_sources(stage_netlists: dict[str, dict[str, Any]], search_dirs: list
     return out
 
 
+# netlistsvg (ELK layout) gets very slow and eventually overflows its stack on huge schematics:
+# above this many cells a view is not drawn (the hierarchy, its sub-modules, the simulation and
+# the timing analysis still work).
+MAX_DRAW_CELLS = 3000
+# flattened variants of bigger modules mostly take minutes to lay out (their sub-modules are drawn anyway)
+MAX_FLAT_CELLS = 400
+# viewer data above this size is embedded gzip-compressed (VERIVIEW_GZIP_MIN, bytes)
+GZIP_MIN = int(os.environ.get("VERIVIEW_GZIP_MIN", "8000000"))
+# a schematic whose layout takes longer than this is skipped (VERIVIEW_DRAW_TIMEOUT, seconds)
+DRAW_TIMEOUT = float(os.environ.get("VERIVIEW_DRAW_TIMEOUT", "120"))
+# above this many cells the layout uses faster (slightly less tidy) ELK settings (render.FAST_LAYOUT)
+FAST_LAYOUT_CELLS = 300
+
+
+def flat_cells(modules: dict[str, Any], name: str, memo: dict[str, int] | None = None) -> int:
+    """Number of cells of a module once flattened (sub-module instances replaced by their contents)."""
+    memo = {} if memo is None else memo
+    if name not in memo:
+        memo[name] = 0   # recursion guard
+        total = 0
+        for c in modules[name].get("cells", {}).values():
+            total += flat_cells(modules, c["type"], memo) if c.get("type") in modules else 1
+        memo[name] = total
+    return memo[name]
+
+
+def placeholder_svg(kind: str, cells: int, detail: str = "") -> str:
+    """Drawn instead of a schematic that is too big (or failed): the viewer translates the text."""
+    msg = {"big": "Too large to draw: {n} cells.", "failed": "This schematic could not be drawn ({n} cells).",
+           "slow": "Not drawn: laying out {n} cells took too long."}[kind]
+    hint = "Open its sub-modules in the tree on the left, or choose a smaller top module."
+    import html as _h
+    return ('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="120" viewBox="0 0 640 120" '
+            'class="vv-placeholder"><rect x="1" y="1" width="638" height="118" rx="10" fill="none" '
+            'stroke="#999" stroke-dasharray="6 4"/>'
+            f'<text x="320" y="52" text-anchor="middle" font-size="16" data-i18n="{_h.escape(msg)}" '
+            f'data-n="{cells}">{_h.escape(msg.replace("{n}", str(cells)))}</text>'
+            f'<text x="320" y="80" text-anchor="middle" font-size="13" fill="#888" '
+            f'data-i18n="{_h.escape(hint)}">{_h.escape(hint)}</text>'
+            f'<desc>{_h.escape(detail[:2000])}</desc></svg>')
+
+
 def _single_module(netlist: dict[str, Any], name: str, mod: dict[str, Any]) -> dict[str, Any]:
     mod = dict(mod)
     mod["attributes"] = {**mod.get("attributes", {}), "top": TOP_ATTR}
@@ -160,7 +209,7 @@ def strip_xml_decl(svg: str) -> str:
 def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work_dir: Path, *,
                  yosys: str, skin: Path | None = None, title: str | None = None,
                  default_stage: str | None = None, default_flat: bool = False,
-                 fsms: dict[str, Any] | None = None, lang: str = "auto") -> None:
+                 fsms: dict[str, Any] | Callable[[], dict[str, Any]] | None = None, lang: str = "auto") -> None:
     """Write the viewer. `stage_netlists` maps stage name -> hierarchical Yosys JSON netlist."""
     if not stage_netlists:
         raise ValueError("no netlists")
@@ -168,16 +217,31 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
 
     # Jobs: (stage, module, flat?) -> (svg, slim netlist)
     jobs: list[tuple[str, str, bool]] = []
+    too_big: dict[int, int] = {}   # job -> cells, for views not drawn
     for st, net in stage_netlists.items():
+        memo: dict[str, int] = {}
         for name in net["modules"]:
+            n = len(net["modules"][name].get("cells", {}))
+            if n > MAX_DRAW_CELLS:
+                too_big[len(jobs)] = n
             jobs.append((st, name, False))
             if user_children(net["modules"], name):
+                n = flat_cells(net["modules"], name, memo)
+                if n > MAX_FLAT_CELLS:
+                    too_big[len(jobs)] = n
                 jobs.append((st, name, True))
+    if too_big:
+        log.info(f"{len(too_big)} view(s) too large to lay out are not drawn (above {MAX_DRAW_CELLS} cells, "
+                 f"or flattened above {MAX_FLAT_CELLS}); their sub-modules are")
 
     def run(idx: int) -> tuple[str, dict[str, Any]]:
         st, name, flat = jobs[idx]
         net = stage_netlists[st]
         mod = net["modules"][name]
+        if idx in too_big:
+            if flat:   # the flattened netlist itself is not needed: no schematic, no simulation of it
+                return placeholder_svg("big", too_big[idx]), {"cells": {}, "ports": {}, "names": {}, "skipped": True}
+            return placeholder_svg("big", too_big[idx]), slim_netlist(mod)
         if flat:
             sub, root = reroot(net, name)
             sub = postprocess(yosys, work_dir, sub, root, flatten=True, cones=[], tag=f"flat{idx}")
@@ -187,7 +251,20 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
             single = _single_module(net, name, mod)
         jpath = work_dir / f"view{idx}.json"
         jpath.write_text(json.dumps(single))
-        svg = run_netlistsvg(jpath, work_dir / f"view{idx}.svg", skin)
+        t0 = time.monotonic()
+        try:
+            svg = run_netlistsvg(jpath, work_dir / f"view{idx}.svg", skin, timeout=DRAW_TIMEOUT,
+                                 fast=len(mod.get("cells", {})) > FAST_LAYOUT_CELLS)
+        except DrawTimeout:
+            log.warn(f"Not drawn, layout took over {DRAW_TIMEOUT:.0f} s: {name}{' (flattened)' if flat else ''}")
+            return placeholder_svg("slow", len(mod.get("cells", {}))), slim_netlist(mod)
+        except VeriViewError as e:   # one schematic failing must not lose the whole viewer
+            log.warn(f"Could not draw {name}{' (flattened)' if flat else ''}: {str(e).splitlines()[-1][:200]}")
+            return placeholder_svg("failed", len(mod.get("cells", {})), str(e)), slim_netlist(mod)
+        dt = time.monotonic() - t0
+        if dt > 10:
+            what = f"{name}{' (flattened)' if flat else ''}"
+            log.info(f"Drawing {what} took {dt:.0f} s ({len(mod.get('cells', {}))} cells)")
         return strip_xml_decl(svg), slim_netlist(mod)
 
     log.info(f"Rendering {len(jobs)} view(s) for stage(s): {', '.join(stages)}...")
@@ -214,13 +291,17 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
         "defaultStage": default_stage if default_stage in views else stages[0],
         "defaultFlat": default_flat,
         "sources": collect_sources(stage_netlists, [Path.cwd(), work_dir]),
-        "fsms": fsms or {},
+        "fsms": (fsms() if callable(fsms) else fsms) or {},
         "lang": lang,
         "views": views,
     }
     # '<' only occurs inside JSON strings, so escaping it keeps </script> and
     # <!-- in SVG text from ending/confusing the inline <script>.
     payload = json.dumps(data, separators=(",", ":")).replace("<", "\\u003c")
+    if len(payload) > GZIP_MIN:   # SVG text compresses ~10x; the browser unpacks it (DecompressionStream)
+        packed = base64.b64encode(gzip.compress(payload.encode("utf-8"), 6)).decode("ascii")
+        log.info(f"Viewer data compressed: {len(payload) / 1e6:.0f} MB -> {len(packed) / 1e6:.0f} MB")
+        payload = json.dumps({"gz": packed})
     page = TEMPLATE.read_text(encoding="utf-8")
     top_label = first["modules"][first["top"]]["label"]
     page = page.replace(TITLE_PLACEHOLDER, _html_escape(title or top_label))

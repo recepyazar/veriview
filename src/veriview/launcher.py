@@ -14,6 +14,7 @@ on API calls, so other web pages cannot drive it.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import tempfile
 import threading
@@ -48,6 +49,8 @@ class Build:
         self.html = self.dir / "viewer.html"
         self.version = 0
         self.attempt = 0          # rebuilds tried (successful or not)
+        self.building = False
+        self.started = 0.0        # time.time() of the running build
         self.error = ""
         self.log: list[str] = []
         self.sources: Any = None
@@ -164,18 +167,37 @@ class Launcher:
         return json.dumps([req.get(k) or None for k in ("files", "top", "flatten", "incdirs", "defines", "frontend")])
 
     def open_view(self, req: dict[str, Any]) -> Build:
-        """The (live) build for a file set and options: built on first use, then reused (/view?f=...)."""
+        """The (live) build for a file set and options (/view?f=...): built in the background on first
+        use (big designs take minutes; the page shows the progress meanwhile), then reused."""
         key = self.view_key(req)
         bid = self.by_key.get(key)
         if bid and bid in self.builds:
             b = self.builds[bid]
             # changed since the last build (e.g. saved by the editor a moment ago): rebuild before showing it
-            if snapshot(watched_files(b.sources, b.inputs)) != getattr(b, "snap", None):
-                self._rebuild(b)
+            if not b.building and snapshot(watched_files(b.sources, b.inputs)) != getattr(b, "snap", None):
+                self._start(b)
             return b
-        r = self.build({**req, "live": True})
-        self.by_key[key] = r["id"]
-        return self.builds[r["id"]]
+        stages = ["elab", "opt", "gate"]
+        extra = ["--html-stages", ",".join(stages), "--stage", stages[0], "--lang", "auto", "--no-open"]
+        if req.get("flatten"):
+            extra.append("--flatten")
+        b = Build(uuid.uuid4().hex[:10], self.argv_for(req, *extra), live=True)
+        b.req = req
+        self.builds[b.id] = b
+        self.by_key[key] = b.id
+        self._start(b)
+        return b
+
+    def _start(self, b: Build) -> None:
+        """Rebuild in a background thread (then watch the sources, for a live build)."""
+        b.building, b.started = True, time.time()
+
+        def run() -> None:
+            self._rebuild(b)
+            if b.live and not getattr(b, "watcher", None):
+                b.watcher = threading.Thread(target=self._watch, args=(b,), daemon=True)
+                b.watcher.start()
+        threading.Thread(target=run, daemon=True).start()
 
     def view_info(self, b: Build) -> dict[str, Any]:
         """What the viewer page needs to know about its server (editing, the drawing, going home)."""
@@ -220,6 +242,7 @@ class Launcher:
     def _rebuild(self, b: Build) -> None:
         from .cli import _build, prepare
         lines: list[str] = []
+        b.building, b.started, b.progress = True, time.time(), lines   # progress: shown while it runs
 
         def go():
             args, inputs, stages = prepare(b.argv + ["-o", str(b.html)])
@@ -239,6 +262,7 @@ class Launcher:
         b.log = lines[-200:]
         b.snap = snapshot(watched_files(b.sources, b.inputs))
         b.attempt += 1
+        b.building = False
 
     def _watch(self, b: Build) -> None:
         # compares with the state of the last build (b.snap), whoever made it (this loop, a save, opening it)
@@ -252,8 +276,10 @@ class Launcher:
         b = self.builds.get(bid)
         if not b:
             raise VeriViewError("Unknown build")
-        return {"version": b.version, "attempt": b.attempt, "error": b.error, "log": b.log, "live": b.live,
-                "name": b.name}
+        log_lines = list(getattr(b, "progress", b.log))[-200:] if b.building else b.log
+        return {"version": b.version, "attempt": b.attempt, "error": b.error, "log": log_lines, "live": b.live,
+                "name": b.name, "building": b.building,
+                "elapsed": round(time.time() - b.started, 1) if b.started else 0}
 
     def report(self, req: dict[str, Any]) -> dict[str, Any]:
         from .cli import prepare, report_text
@@ -372,6 +398,46 @@ white-space:pre-wrap;font:12.5px/1.5 ui-monospace,Menlo,monospace}</style></head
 for(const e of document.querySelectorAll("[data-tr]"))e.innerHTML=e.dataset.tr}catch(e){}</script></body></html>"""
 
 
+BUILDING_PAGE = """<!doctype html><html><head><meta charset="utf-8"><title>VeriView · __TITLE__</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><style>
+body{font:14px/1.5 system-ui,sans-serif;margin:0;background:#f6f7f9;color:#1d232b}
+@media (prefers-color-scheme: dark){body{background:#111418;color:#e6e9ed}pre{background:#181c21!important}}
+header{padding:10px 16px;border-bottom:1px solid #8884}a{color:#2563eb}main{padding:16px;max-width:1000px}
+pre{background:#fff;border:1px solid #8884;border-radius:8px;padding:10px;white-space:pre-wrap;max-height:60vh;
+overflow:auto;font:12px/1.5 ui-monospace,Menlo,monospace}
+.sp{display:inline-block;width:14px;height:14px;border:2px solid #8886;border-top-color:#2563eb;border-radius:50%;
+animation:s .8s linear infinite;vertical-align:-2px;margin-right:8px}
+@keyframes s{to{transform:rotate(360deg)}}</style></head>
+<body><header><a href="/"><b>VeriView</b></a> &nbsp;·&nbsp; __TITLE__</header><main>
+<h3><span class="sp"></span><span id="h">Building the design…</span> <small id="t"></small></h3>
+<p id="p">Big designs take a few minutes (synthesis of every view, then drawing the schematics).
+This page shows the progress and opens the viewer when it is ready.</p><pre id="log"></pre></main>
+<script>
+const tr = (() => { try { return ((localStorage.getItem("veriview-lang") || navigator.language) + "")
+  .toLowerCase().startsWith("tr"); } catch (e) { return false; } })();
+if (tr) { document.getElementById("h").textContent = "Tasarım oluşturuluyor…";
+  document.getElementById("p").textContent = "Büyük tasarımlar birkaç dakika sürer (her görünümün sentezi, " +
+    "ardından şemaların çizimi). Bu sayfa ilerlemeyi gösterir ve hazır olunca görüntüleyiciyi açar."; }
+const start = __ATTEMPT__;
+async function poll() {
+  try {
+    const s = await (await fetch("/api/status/__ID__", { cache: "no-store" })).json();
+    document.getElementById("log").textContent = (s.log || []).slice(-40).join("\n");
+    document.getElementById("t").textContent = s.elapsed ? Math.round(s.elapsed) + " s" : "";
+    if (!s.building || s.attempt > start) { location.reload(); return; }
+  } catch (e) {}
+  setTimeout(poll, 1000);
+}
+poll();
+</script></body></html>"""
+
+
+def building_page(info: dict[str, Any], b: Build) -> bytes:
+    import html as _h
+    return (BUILDING_PAGE.replace("__TITLE__", _h.escape(str(info.get("title", ""))))
+            .replace("__ID__", b.id).replace("__ATTEMPT__", str(b.attempt))).encode("utf-8")
+
+
 def error_page(message: str, info: dict[str, Any] | None, js: str = "") -> bytes:
     import html as _h
     if info:
@@ -383,6 +449,22 @@ def error_page(message: str, info: dict[str, Any] | None, js: str = "") -> bytes
     page = (ERROR_PAGE.replace("__TITLE__", _h.escape(str((info or {}).get("title", ""))))
             .replace("__ERROR__", _h.escape(message or "unknown error"))
             .replace("__HINT_TR__", _h.escape(hint_tr)).replace("__HINT__", hint))
+    if info and info.get("files"):
+        # another top module: the suggested ones as links, any other one through the form
+        from urllib.parse import urlencode
+        files = [("f", f) for f in info["files"]]
+        m = re.search(r"Try a synthesizable top module: (.+)", message or "")
+        sugg = [t.strip() for t in m.group(1).split(",")] if m else []
+        links = " ".join(f'<a href="/view?{_h.escape(urlencode([*files, ("top", t)]))}"><b>{_h.escape(t)}</b></a>'
+                         for t in sugg if re.match(r"^[A-Za-z_][\w$]*$", t))
+        hidden = "".join(f'<input type="hidden" name="f" value="{_h.escape(f)}">' for _, f in files)
+        form = (f'<form action="/view" method="get" style="margin-top:14px">{hidden}'
+                '<label><span data-tr="Başka bir top modülle aç:">Open with another top module:</span> '
+                '<input name="top" required pattern="[A-Za-z_][A-Za-z0-9_$]*" '
+                'style="font:inherit;padding:3px 6px"></label> '
+                '<button style="font:inherit;padding:3px 10px" data-tr="Aç">Open</button>'
+                + (f' &nbsp; <span data-tr="Önerilen:">Suggested:</span> {links}' if links else "") + "</form>")
+        page = page.replace("</main>", form + "</main>", 1)
     return (page.replace("</body>", js + "</body>", 1) if js else page).encode("utf-8")
 
 
@@ -420,6 +502,8 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
                     b = launcher.open_view(req)
                 except VeriViewError as e:
                     return self._send(400, "text/html; charset=utf-8", error_page(str(e), None))
+                if b.building:   # a (re)build is running: show its progress, reload when it is done
+                    return self._send(200, "text/html; charset=utf-8", building_page(launcher.view_info(b), b))
                 if not b.html.is_file():   # the first build failed: show why, reload once it builds
                     js = LIVE_RELOAD_JS.replace("/__veriview/status", f"/api/status/{b.id}")
                     return self._send(200, "text/html; charset=utf-8", error_page(b.error, launcher.view_info(b), js))

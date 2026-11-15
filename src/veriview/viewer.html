@@ -363,8 +363,14 @@
 </script>
 <script>
 const DATA = /*__VERIVIEW_DATA__*/null;
+// big designs: the data is gzip-compressed (base64), unpacked by the browser before the viewer starts
+const VV_DATA = DATA && DATA.gz ? (async () => {
+  const bin = Uint8Array.from(atob(DATA.gz), (c) => c.charCodeAt(0));
+  const text = await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+  return JSON.parse(text);
+})() : Promise.resolve(DATA);
 
-(() => {
+VV_DATA.then((DATA) => {
   "use strict";
   const $ = (id) => document.getElementById(id);
   const canvas = $("canvas"), crumbs = $("crumbs"), treeEl = $("tree"), statusEl = $("status");
@@ -484,6 +490,10 @@ const DATA = /*__VERIVIEW_DATA__*/null;
     "⤓ Viewer as HTML": "⤓ Görüntüleyiciyi HTML olarak indir",
     "Save this viewer as a single HTML file (works without VeriView)": "Bu görüntüleyiciyi tek bir HTML dosyası olarak kaydet (VeriView olmadan çalışır)",
     "◐ Light / dark": "◐ Açık / koyu",
+    "Too large to draw: {n} cells.": "Çizilemeyecek kadar büyük: {n} hücre.",
+    "This schematic could not be drawn ({n} cells).": "Bu şema çizilemedi ({n} hücre).",
+    "Not drawn: laying out {n} cells took too long.": "Çizilmedi: {n} hücrenin yerleşimi çok uzun sürdü.",
+    "Open its sub-modules in the tree on the left, or choose a smaller top module.": "Soldaki ağaçtan alt modüllerini aç ya da daha küçük bir top modül seç.",
     "Save and rebuild (Ctrl+S)": "Kaydet ve yeniden üret (Ctrl+S)",
     "Stop editing (unsaved changes are dropped)": "Düzenlemeyi bırak (kaydedilmemiş değişiklikler silinir)",
     "editing {f} · Ctrl+S saves and rebuilds": "{f} düzenleniyor · Ctrl+S kaydeder ve yeniden üretir",
@@ -1746,6 +1756,7 @@ const DATA = /*__VERIVIEW_DATA__*/null;
   const show = () => {
     const name = moduleOf(state.path), mod = mods()[name], v = variant(mod);
     canvas.innerHTML = v.svg;
+    for (const t of canvas.querySelectorAll("text[data-i18n]")) t.textContent = _t(t.dataset.i18n, { n: t.dataset.n });   // "too large" notes
     svg = canvas.querySelector("svg");
     const w = parseFloat(svg.getAttribute("width")) || 100, h = parseFloat(svg.getAttribute("height")) || 100;
     full = { x: 0, y: 0, w, h };
@@ -2072,7 +2083,10 @@ const DATA = /*__VERIVIEW_DATA__*/null;
       $("code-msg").textContent = _t("saved {f}", { f: back.file.split("/").pop() });
     }
   } catch (e) {}
-})();
+}).catch((e) => {
+  document.body.insertAdjacentHTML("afterbegin", '<pre style="color:#b42318;padding:12px">VeriView: ' + String(e).replace(/</g, "&lt;") + "</pre>");
+  throw e;
+});
 </script>
 </body>
 </html>

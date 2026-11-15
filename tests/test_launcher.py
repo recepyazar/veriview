@@ -190,29 +190,43 @@ def test_drawings_save_load_and_listing(proj):
 
 
 @needs_tools
+def _view(url, path, timeout=120):
+    """GET a /view URL; while it builds the page shows the progress: wait and fetch it again."""
+    import time
+    end = time.monotonic() + timeout
+    while True:
+        code, body = _req(url + path)
+        if "Building the design" not in body or time.monotonic() > end:
+            return code, body
+        time.sleep(0.3)
+
+
 def test_view_urls(proj):
     server, la, url = serve(proj, 18840)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
     try:
-        code, body = _req(url + "view?f=counter.sv")
+        code, body = _req(url + "view?f=counter.sv")        # built in the background: a progress page first
+        assert code == 200 and "Building the design" in body and "/api/status/" in body
+        code, body = _view(url, "view?f=counter.sv")
         assert code == 200 and '"title": "counter.sv"' in body and '"files": ["counter.sv"]' in body
         assert len(la.builds) == 1
-        assert _req(url + "view?f=counter.sv")[0] == 200 and len(la.builds) == 1      # the same build again
+        assert _view(url, "view?f=counter.sv")[0] == 200 and len(la.builds) == 1      # the same build again
         # changed on disk since: rebuilt before it is shown (no stale page after saving in the editor)
         b = next(iter(la.builds.values()))
         src = (proj / "counter.sv").read_text()
         (proj / "counter.sv").write_text(src.replace("count + 1", "count + 2"))
-        _req(url + "view?f=counter.sv")
+        _view(url, "view?f=counter.sv")
         assert b.version >= 2
         (proj / "bad.v").write_text("module bad(input a; endmodule\n")
-        code, body = _req(url + "view?f=bad.v")
+        code, body = _view(url, "view?f=bad.v")
         assert code == 200 and "could not be built" in body and "syntax error" in body
+        assert 'name="top"' in body                                                   # another top can be chosen
         assert _req(url + "view?f=../x.v")[0] == 400
         # a drawn design: the viewer knows its drawing (Edit opens the gate editor)
         la.save_drawing({"path": "ha.v", "text": "module ha(input a, b, output s); assign s = a ^ b; endmodule\n",
                          "design": {"nodes": [], "wires": []}})
-        code, body = _req(url + "view?f=ha.v")
+        code, body = _view(url, "view?f=ha.v")
         assert code == 200 and '"drawing": "ha.veriview.json"' in body
         d = la.to_editor({"files": ["rca/rca.f"], "module": "fa"})
         assert d["module"] == "fa" and "error" not in d

@@ -40,7 +40,9 @@ const parseVal = (text, w) => {
 
 function createSimulator(netOf, isModule) {
   const sim = {
-    top: null, inputs: new Map(), regs: new Map(), vals: new Map(), ffCache: new Map(),
+    top: null, inputs: new Map(), regs: new Map(), mems: new Map(), vals: new Map(), ffCache: new Map(),
+    dirty: new Map(),       // instance key -> bits changed since its last evaluation
+    seen: new Map(),        // instance key -> which cells were evaluated at least once
     unsupported: new Set(), cycle: 0, loopWarn: false,
     userSet: new Set(),     // inputs the user changed (others get defaults on reset)
     resetPorts: new Map(),  // top-level input -> inactive level, for inputs that drive register resets
@@ -186,19 +188,164 @@ function createSimulator(netOf, isModule) {
     return ext(sigs("D"), d.w, false);
   }
 
+  // ---- memories ($mem_v2, as made by memory_collect) -----------------------------------
+  // words: arrays of bits; read ports without a clock are combinational, clocked read ports are
+  // registers updated on their clock edge (read-before-write unless the port is transparent);
+  // write ports write on their clock edge, bit by bit (WR_EN), in port order.
+  function memDesc(cell) {
+    const p = (k, d = 0) => pInt(cell, k, d);
+    const bitsP = (k, n) => bitsOfParam(cell[2] && cell[2][k], n);
+    const R = p("RD_PORTS"), Wp = p("WR_PORTS"), w = p("WIDTH", 1), ab = p("ABITS", 1);
+    return {
+      size: p("SIZE"), off: p("OFFSET"), w, ab, R, W: Wp,
+      rdClk: bitsP("RD_CLK_ENABLE", R), rdPol: bitsP("RD_CLK_POLARITY", R), rdCeSrst: bitsP("RD_CE_OVER_SRST", R),
+      rdTrans: bitsP("RD_TRANSPARENCY_MASK", R * Wp), rdInit: bitsP("RD_INIT_VALUE", R * w),
+      rdArst: bitsP("RD_ARST_VALUE", R * w), rdSrst: bitsP("RD_SRST_VALUE", R * w),
+      wrClk: bitsP("WR_CLK_ENABLE", Wp), wrPol: bitsP("WR_CLK_POLARITY", Wp), init: cell[2] && cell[2].INIT,
+    };
+  }
+  function memState(key, name, cell, mod) {
+    const mk = key + "\u0000" + name;
+    let m = sim.mems.get(mk);
+    if (!m) {
+      const d = memDesc(cell), init = bitsOfParam(d.init, d.size * d.w);
+      const words = [];
+      for (let i = 0; i < d.size; i++) words.push(init.slice(i * d.w, (i + 1) * d.w));
+      m = { d, words, rdq: Array.from({ length: d.R }, (_, i) => d.rdInit.slice(i * d.w, (i + 1) * d.w)),
+        prevRd: new Array(d.R).fill(null), prevWr: new Array(d.W).fill(null), key, name, mod };
+      sim.mems.set(mk, m);
+    }
+    return m;
+  }
+  const slice = (v, i, n) => v.slice(i * n, (i + 1) * n);
+  const memRead = (m, addr) => { const i = Number(toBig(addr)) - m.d.off; return i >= 0 && i < m.d.size ? m.words[i].slice() : new Array(m.d.w).fill(0); };
+  function memOutputs(m, sigs) {
+    const d = m.d, A = sigs("RD_ADDR"), arst = sigs("RD_ARST"), out = [];
+    for (let i = 0; i < d.R; i++) {
+      if (!d.rdClk[i]) out.push(...memRead(m, slice(A, i, d.ab)));
+      else {
+        if (arst[i]) m.rdq[i] = slice(d.rdArst, i, d.w);
+        out.push(...m.rdq[i]);
+      }
+    }
+    return out;
+  }
+  // the effect of clock edges on a memory: [] if none, else a function applying it
+  function memEdges(m, sigs) {
+    const d = m.d, rclk = sigs("RD_CLK"), wclk = sigs("WR_CLK"), acts = [];
+    const fired = (prev, i, c, pol) => { const e = prev[i] !== null && prev[i] !== c && c === pol; prev[i] = c; return e; };
+    const writes = [];
+    const WA = sigs("WR_ADDR"), WD = sigs("WR_DATA"), WE = sigs("WR_EN");
+    for (let j = 0; j < d.W; j++) {
+      if (!d.wrClk[j] || !fired(m.prevWr, j, wclk[j] || 0, d.wrPol[j])) continue;
+      writes.push([Number(toBig(slice(WA, j, d.ab))) - d.off, slice(WD, j, d.w), slice(WE, j, d.w), j]);
+    }
+    const RA = sigs("RD_ADDR"), EN = sigs("RD_EN"), SR = sigs("RD_SRST");
+    for (let i = 0; i < d.R; i++) {
+      if (!d.rdClk[i] || !fired(m.prevRd, i, rclk[i] || 0, d.rdPol[i])) continue;
+      const en = EN.length ? EN[i] : 1;
+      if (SR[i] && (!d.rdCeSrst[i] || en)) { acts.push(() => { m.rdq[i] = slice(d.rdSrst, i, d.w); }); continue; }
+      if (!en) continue;
+      const addr = Number(toBig(slice(RA, i, d.ab))) - d.off;
+      let data = memRead(m, slice(RA, i, d.ab));
+      for (const [wa, wd, we, j] of writes) {   // transparent port: sees this edge's write
+        if (wa === addr && d.rdTrans[i * d.W + j]) data = data.map((b, k) => (we[k] ? wd[k] : b));
+      }
+      acts.push(() => { m.rdq[i] = data; });
+    }
+    for (const [wa, wd, we] of writes) {
+      if (wa < 0 || wa >= d.size) continue;
+      acts.push(() => { m.words[wa] = m.words[wa].map((b, k) => (we[k] ? wd[k] : b)); });
+    }
+    return acts;
+  }
+
+  // Evaluation order of a module's cells: registers and memories first (their outputs are state),
+  // then the other cells topologically (drivers before readers). minReader[bit] = the first
+  // position reading a bit: a pass only has to be repeated when a cell changes a bit that an
+  // earlier cell has already read (a loop, or a path through a sub-module); usually one pass.
+  const orderCache = new Map();
+  function orderOf(modName) {
+    if (orderCache.has(modName)) return orderCache.get(modName);
+    const n = hierNet(modName), entries = Object.entries(n.cells);
+    const isState = ([name, cell]) => cell[0] === "$mem_v2" || !!ffOf(modName, name, cell);
+    const ins = (cell) => {
+      const out = [];
+      for (const [p, [dir, bits]] of Object.entries(cell[1])) {
+        if (dir === "output" || (cell[0] === "$mem_v2" && p === "RD_DATA") || p === "Q") continue;
+        for (const b of bits) if (typeof b === "number") out.push(b);
+      }
+      return out;
+    };
+    const outs = (cell) => {
+      const out = [];
+      for (const [p, [dir, bits]] of Object.entries(cell[1])) {
+        if (dir === "input" && !(cell[0] === "$mem_v2" && p === "RD_DATA")) continue;
+        if (dir === "" && p !== "Y" && p !== "Q" && p !== "RD_DATA") continue;
+        for (const b of bits) if (typeof b === "number") out.push(b);
+      }
+      return out;
+    };
+    const driver = new Map();
+    entries.forEach((e, i) => { for (const b of outs(e[1])) driver.set(b, i); });
+    const deg = new Array(entries.length).fill(0), succ = entries.map(() => []);
+    entries.forEach((e, i) => {
+      if (isState(e)) return;
+      const seen = new Set();
+      for (const b of ins(e[1])) {
+        const d = driver.get(b);
+        if (d === undefined || d === i || seen.has(d) || isState(entries[d])) continue;
+        seen.add(d); succ[d].push(i); deg[i]++;
+      }
+    });
+    const order = [], placed = new Array(entries.length).fill(false);
+    entries.forEach((e, i) => { if (isState(e)) { order.push(i); placed[i] = true; } });
+    const queue = [];
+    entries.forEach((e, i) => { if (!placed[i] && !deg[i]) queue.push(i); });
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q]; order.push(i); placed[i] = true;
+      for (const j of succ[i]) if (--deg[j] === 0) queue.push(j);
+    }
+    entries.forEach((e, i) => { if (!placed[i]) order.push(i); });   // on a loop: settled by extra passes
+    const cells = order.map((i) => entries[i]), minReader = new Map();
+    cells.forEach(([, cell], pos) => { for (const b of ins(cell)) if (!minReader.has(b)) minReader.set(b, pos); });
+    // combinational cells are only re-evaluated when one of their input bits changed
+    const gated = cells.map(([name, cell]) => !isState([name, cell]) && !isModule(cell[0]));
+    const insOf = cells.map(([, cell]) => ins(cell));
+    const o = { cells, minReader, gated, insOf };
+    orderCache.set(modName, o);
+    return o;
+  }
+
   function evalModule(modName, key, inVals, depth = 0) {
-    const n = hierNet(modName);
     let vals = sim.vals.get(key);
     if (!vals) { vals = new Map(); sim.vals.set(key, vals); }
-    for (const [b, v] of inVals) vals.set(b, v);
+    let dirty = sim.dirty.get(key);
+    if (!dirty) { dirty = new Set(); sim.dirty.set(key, dirty); }
+    for (const [b, v] of inVals) if (vals.get(b) !== v) { vals.set(b, v); dirty.add(b); }
     if (depth > 64) return vals;
-    const cells = Object.entries(n.cells);
+    const { cells, minReader, gated, insOf } = orderOf(modName);
+    let seen = sim.seen.get(key);
+    if (!seen) { seen = new Uint8Array(cells.length); sim.seen.set(key, seen); }
     for (let pass = 0; pass < 200; pass++) {
-      let changed = false;
+      let again = false, pos = 0;
       const write = (bits, v) => bits.forEach((b, i) => {
-        if (typeof b === "number" && vals.get(b) !== (v[i] || 0)) { vals.set(b, v[i] || 0); changed = true; }
+        if (typeof b === "number" && vals.get(b) !== (v[i] || 0)) {
+          vals.set(b, v[i] || 0);
+          dirty.add(b);
+          const r = minReader.get(b);
+          if (r !== undefined && r <= pos) again = true;   // read before it changed: evaluate again
+        }
       });
-      for (const [name, cell] of cells) {
+      for (; pos < cells.length; pos++) {
+        if (gated[pos] && seen[pos]) {
+          const bs = insOf[pos];
+          let hit = false;
+          for (let k = 0; k < bs.length; k++) if (dirty.has(bs[k])) { hit = true; break; }
+          if (!hit) continue;
+        }
+        seen[pos] = 1;
+        const [name, cell] = cells[pos];
         const [type, conns] = cell;
         const sigs = (p) => (conns[p] ? rd(vals, conns[p][1]) : []);
         const ff = ffOf(modName, name, cell);
@@ -208,6 +355,11 @@ function createSimulator(netOf, isModule) {
           if (!reg) { reg = { q: new Array(ff.w).fill(0), prev: null, d: ff, key, mod: modName, name }; sim.regs.set(rk, reg); }
           reg.q = asyncQ(ff, reg.q, sigs);
           if (conns.Q) write(conns.Q[1], reg.q);
+          continue;
+        }
+        if (type === "$mem_v2") {
+          const m = memState(key, name, cell, modName);
+          if (conns.RD_DATA) write(conns.RD_DATA[1], memOutputs(m, sigs));
           continue;
         }
         if (isModule(type)) {
@@ -225,7 +377,7 @@ function createSimulator(netOf, isModule) {
         if (!out) { sim.unsupported.add(type); continue; }
         for (const [p, v] of Object.entries(out)) if (conns[p]) write(conns[p][1], v);
       }
-      if (!changed) return vals;
+      if (!again) { dirty.clear(); return vals; }
     }
     sim.loopWarn = true; // combinational loop that does not settle
     return vals;
@@ -255,8 +407,15 @@ function createSimulator(netOf, isModule) {
         if (reg.prev !== null && reg.prev !== c && c === reg.d.clk[1]) updates.push([reg, syncNext(reg.d, reg.q, sigs)]);
         reg.prev = c;
       }
-      if (!updates.length) break;
+      const memActs = [];
+      for (const m of sim.mems.values()) {
+        const vals = sim.vals.get(m.key), cell = hierNet(m.mod).cells[m.name];
+        const conns = cell[1], sigs = (p) => (conns[p] ? rd(vals, conns[p][1]) : []);
+        memActs.push(...memEdges(m, sigs));
+      }
+      if (!updates.length && !memActs.length) break;
       for (const [reg, q] of updates) reg.q = q;
+      for (const act of memActs) act();
       settle();
     }
     sim.held = heldInReset();
@@ -314,7 +473,7 @@ function createSimulator(netOf, isModule) {
   // Reset all registers to 0. Inputs the user set are kept (keepInputs); all others start
   // at 0, except inputs that drive a register reset, which start inactive (e.g. rst_n = 1).
   function simReset(keepInputs = true) {
-    sim.regs.clear(); sim.vals.clear(); sim.ffCache.clear(); sim.unsupported.clear(); sim.cycle = 0;
+    sim.regs.clear(); sim.mems.clear(); sim.vals.clear(); sim.dirty.clear(); sim.seen.clear(); sim.ffCache.clear(); sim.unsupported.clear(); sim.cycle = 0;
     if (!keepInputs) { sim.inputs.clear(); sim.userSet.clear(); }
     const n = hierNet(sim.top), fresh = [];
     for (const [p, [dir, pb]] of Object.entries(n.ports)) {

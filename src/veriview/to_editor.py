@@ -52,7 +52,7 @@ ROW_GAP, X0, Y0, TRACK = 30, 80, 80, 10
 
 def editor_commands() -> list[str]:
     from .synth import GATE_SET
-    return ["proc", "flatten", "synth -run coarse:fine", "memory_map", "techmap", "opt -fast",
+    return ["proc", "flatten", "synth -noshare -run coarse:fine", "memory_map", "techmap", "opt -fast",
             "dfflegalize -cell $_DFF_P_ 01 -cell $_DFF_PN0_ 01", f"abc -g {GATE_SET}", "opt_clean -purge"]
 
 

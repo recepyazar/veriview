@@ -18,7 +18,7 @@ from .tools import find_tool, project_yosys_with_slang, slang_available, slang_h
 
 FRONTENDS = ("auto", "yosys", "sv2v", "slang")
 # Errors caused by the design/invocation itself rather than parser support.
-_DESIGN_ERROR_RE = re.compile(r"Module `[^']*' not found|Can't open include file")
+_DESIGN_ERROR_RE = re.compile(r"Module `[^']*' not found|Can't open include file|Yosys was stopped by signal")
 # where an error happened: yosys-slang's "Source line f.sv:12:5:", slang's "f.sv:12:5: error:"
 # (older yosys-slang versions print "f.sv:12: ERROR: ...")
 _ERR_LOC_RE = re.compile(r"^Source line (\S+?):(\d+)(?::\d+)?:|^(\S+?):(\d+)(?::\d+)?: (?:error|ERROR):", re.M)
@@ -26,15 +26,26 @@ _MODULE_RE = re.compile(r"^[ \t]*(?:macromodule|module)\s+(?:automatic\s+|static
 MAX_BLACKBOXES = 8
 
 
-def summarize_error(text: str, max_lines: int = 25) -> str:
-    """The lines of a tool's error output that say something (yosys-slang dumps whole ASTs)."""
-    lines = [ln.rstrip() for ln in text.splitlines()]
+def summarize_error(text: str, max_lines: int = 25, per_kind: int = 3) -> str:
+    """The lines of a tool's error output that say something (yosys-slang dumps whole ASTs);
+    repeated lines dropped, at most `per_kind` lines with the same message (at other places)."""
+    lines = list(dict.fromkeys(ln.rstrip() for ln in text.splitlines()))
     keep = [ln for ln in lines if re.search(r"error|Source line|unimplemented|not found|failed", ln, re.I)]
     if not keep:
         keep = [ln for ln in lines if ln.strip() and ln.strip() not in ("{", "}", "[", "]", "},", "],")]
-    out = keep[:max_lines]
-    if len(keep) > max_lines:
-        out.append(f"... ({len(keep) - max_lines} more lines)")
+    out: list[str] = []
+    kinds: dict[str, int] = {}
+    for ln in keep:
+        kind = re.sub(r"^\S+?:\d+(?::\d+)?: ", "", ln)   # the message without its location
+        kinds[kind] = kinds.get(kind, 0) + 1
+        if kinds[kind] <= per_kind:
+            out.append(ln)
+    more = {k: n - per_kind for k, n in kinds.items() if n > per_kind}
+    for k, n in more.items():
+        idx = max(i for i, ln in enumerate(out) if ln.endswith(k))
+        out.insert(idx + 1, f"  ... and {n} more like this")
+    if len(out) > max_lines:
+        out = out[:max_lines] + [f"... ({len(out) - max_lines} more lines)"]
     return "\n".join(out)
 
 
@@ -95,12 +106,20 @@ def stage_commands(stage: str, flatten: bool) -> list[str]:
         cmds.append("flatten")
     if stage == "elab":
         # plain opt_clean (no -purge): keep the names of intermediate nets as written
-        cmds += ["setattr -set keep 1 */c:* */t:$scopeinfo %d", "opt_clean"]
+        # memory_collect: each memory as one $mem_v2 cell (one box in the schematic; simulated)
+        cmds += ["memory_collect", "setattr -set keep 1 */c:* */t:$scopeinfo %d", "opt_clean"]
     elif stage == "opt":
-        cmds += ["opt", "opt_clean -purge"]
+        cmds += ["opt", "memory_collect", "opt_clean -purge"]
     elif stage == "gate":
-        cmds += ["synth -run coarse:fine", "memory_map", "techmap", "opt -fast",
-                 f"abc -g {GATE_SET}", "opt_clean -purge"]
+        # -noshare: SAT-based resource sharing only saves area and takes ages on big designs
+        # memories of 2 kbit and more stay memory macros ($mem_v2, like SRAMs in a real flow):
+        # mapped to flip-flops, a cache becomes hundreds of thousands of cells (and Yosys runs out
+        # of memory); select cannot multiply SIZE * WIDTH, hence the pairs of thresholds
+        macro = [f"setattr -set veriview_macro 1 t:$mem_v2 r:SIZE>={n} %i r:WIDTH>={w} %i"
+                 for n, w in ((2048, 1), (1024, 2), (512, 4), (256, 8), (128, 16), (64, 32), (32, 64), (16, 128),
+                              (8, 256), (4, 512))]
+        cmds += ["synth -noshare -run coarse:fine", *macro, "memory_map -attr !veriview_macro", "techmap",
+                 "opt -fast", f"abc -g {GATE_SET}", "opt_clean -purge"]
     else:
         raise ValueError(stage)
     return cmds
@@ -223,6 +242,11 @@ class Synthesizer:
         log_file = ys.with_suffix(".log")
         r = subprocess.run([self.yosys, "-q", "-l", str(log_file.resolve()), "-s", str(ys.resolve())],
                            capture_output=True, text=True, cwd=cwd)
+        if r.returncode < 0:   # killed (the out-of-memory killer: SIGKILL) - another frontend will not help
+            sig = -r.returncode
+            raise FrontendError(f"ERROR: Yosys was stopped by signal {sig}"
+                                + (" (most likely out of memory: try a smaller top module, or fewer views)"
+                                   if sig == 9 else "") + f" during {name.rsplit('.', 1)[0].replace('synth_', '')}")
         if r.returncode != 0:
             # with -q, diagnostics (e.g. slang's "f.sv:12:5: error: ...") only reach the log file
             try:
@@ -363,7 +387,10 @@ class Synthesizer:
                 "\nYosys' built-in parser supports only part of SystemVerilog (e.g. no unpacked array ports)."
                 "\nInstall sv2v for full support: veriview --install-deps"
             )
-        return VeriViewError(msg + self._simulation_only_hint())
+        hint = self._simulation_only_hint()
+        if hint:   # the explanation first: the tools' messages follow
+            msg = "Synthesis failed." + hint + msg[len("Synthesis failed."):]
+        return VeriViewError(msg)
 
     # --- public API -----------------------------------------------------------
 

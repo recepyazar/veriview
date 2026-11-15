@@ -48,7 +48,7 @@ LIVE_RELOAD_JS = """
         // the viewer's code panel holds unsaved edits: reload once they are saved or dropped
         if (!window.__veriviewHold) { location.reload(); return; }
       }
-      bar.style.display = s.error ? "block" : "none";
+      bar.style.display = s.error && !window.__veriviewErrorPage ? "block" : "none";   // an error page shows it already
       bar.textContent = s.error ? "VeriView: rebuild failed (showing the last good version)\\n\\n" + s.error : "";
     } catch (e) { /* server stopped */ }
     setTimeout(poll, 1000);

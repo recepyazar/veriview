@@ -394,7 +394,7 @@ white-space:pre-wrap;font:12.5px/1.5 ui-monospace,Menlo,monospace}</style></head
 <body><header><a href="/"><b>VeriView</b></a> &nbsp;·&nbsp; __TITLE__</header><main>
 <h3 data-tr="Tasarım oluşturulamadı.">The design could not be built.</h3><pre>__ERROR__</pre>
 <p data-tr="__HINT_TR__">__HINT__</p></main>
-<script>try{if(((localStorage.getItem("veriview-lang")||navigator.language)+"").toLowerCase().startsWith("tr"))
+<script>window.__veriviewErrorPage=true;try{if(((localStorage.getItem("veriview-lang")||navigator.language)+"").toLowerCase().startsWith("tr"))
 for(const e of document.querySelectorAll("[data-tr]"))e.innerHTML=e.dataset.tr}catch(e){}</script></body></html>"""
 
 
@@ -422,7 +422,9 @@ const start = __ATTEMPT__;
 async function poll() {
   try {
     const s = await (await fetch("/api/status/__ID__", { cache: "no-store" })).json();
-    document.getElementById("log").textContent = (s.log || []).slice(-40).join("\n");
+    const lg = document.getElementById("log"), atEnd = lg.scrollTop + lg.clientHeight >= lg.scrollHeight - 30;
+    lg.textContent = (s.log || []).slice(-200).join("\\n");
+    if (atEnd) lg.scrollTop = lg.scrollHeight;   // follow the end unless the user scrolled up
     document.getElementById("t").textContent = s.elapsed ? Math.round(s.elapsed) + " s" : "";
     if (!s.building || s.attempt > start) { location.reload(); return; }
   } catch (e) {}

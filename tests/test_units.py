@@ -199,7 +199,9 @@ def test_reroot_and_depth():
 
 def test_stage_commands():
     from veriview.synth import stage_commands
-    assert stage_commands("opt", False) == ["proc", "opt", "opt_clean -purge"]
+    assert stage_commands("opt", False) == ["proc", "opt", "memory_collect", "opt_clean -purge"]
+    gate = stage_commands("gate", False)
+    assert "synth -noshare -run coarse:fine" in gate and "memory_map -attr !veriview_macro" in gate
     assert "flatten" in stage_commands("elab", True)
     assert any(c.startswith("setattr -set keep") for c in stage_commands("elab", False))
     assert any(c.startswith("abc -g") for c in stage_commands("gate", False))

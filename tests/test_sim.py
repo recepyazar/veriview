@@ -250,3 +250,79 @@ def test_waveform_and_vcd(tmp_path):
     # cycle 4 starts at #40 with a rising clock edge and shift_reg = 1011
     i = vcd.index("#40")
     assert vcd[i + 1] == "1!" and "b1011 #" in vcd[i + 1:i + 4]
+
+
+MEMS = """
+module mems(input clk, input we, input [3:0] wa, input [7:0] wd, input [3:0] ra1, input [3:0] ra2,
+            input [2:0] ra3, output [7:0] rd1, output [7:0] rd2, output reg [7:0] rd3, output [7:0] rom);
+  reg [7:0] rf [0:15];        // register file: 2 combinational read ports, 1 write port
+  always @(posedge clk) if (we) rf[wa] <= wd;
+  assign rd1 = rf[ra1];
+  assign rd2 = rf[ra2];
+  reg [7:0] ram [0:7];        // RAM with a registered read (read-before-write)
+  always @(posedge clk) begin
+    if (we) ram[wa[2:0]] <= wd;
+    rd3 <= ram[ra3];
+  end
+  reg [7:0] tbl [0:7];        // ROM with initial contents
+  integer i;
+  initial for (i = 0; i < 8; i = i + 1) tbl[i] = 8'h10 + i;
+  assign rom = tbl[ra3];
+endmodule
+"""
+
+
+@pytest.mark.parametrize("stage", ["elab", "opt", "gate"])
+def test_memories(tmp_path, stage):
+    src = tmp_path / "mems.v"
+    src.write_text(MEMS)
+    data = build(tmp_path, src, stage=stage)
+    if stage != "gate":   # one $mem_v2 cell per memory (memory_collect), not read/write port cells
+        cells = json.loads(data.read_text())["views"][stage]["modules"]["mems"]["hier"]["net"]["cells"]
+        types = {c[0] for c in cells.values()}
+        assert "$mem_v2" in types and not types & {"$memrd_v2", "$memwr_v2", "$memrd", "$memwr"}
+    ops = [["set", "we", 1]]
+    for a, v in [(3, 0x33), (5, 0x55), (12, 0xC0)]:
+        ops += [["set", "wa", a], ["set", "wd", v], ["clock", "clk", 1]]
+    ops += [["set", "we", 0], ["set", "ra1", 3], ["set", "ra2", 12], ["get", "rd1"], ["get", "rd2"],
+            ["set", "ra1", 7], ["get", "rd1"],                     # never written: 0
+            ["set", "ra3", 5], ["get", "rom"], ["clock", "clk", 1], ["get", "rd3"],
+            # read and write the same RAM word on one edge: the read sees the old value
+            ["set", "we", 1], ["set", "wa", 5], ["set", "wd", 0x99], ["clock", "clk", 1], ["get", "rd3"],
+            ["set", "we", 0], ["clock", "clk", 1], ["get", "rd3"]]
+    assert simulate(tmp_path, data, stage, ops) == [0x33, 0xC0, 0, 0x15, 0x55, 0x55, 0x99]
+
+
+BIGMEM = """
+module bigmem(input clk, input we, input [8:0] wa, input [15:0] wd, input [8:0] ra, output reg [15:0] q,
+              output [15:0] small_q);
+  reg [15:0] mem [0:511];     // 8 kbit: stays a memory macro in the gate view
+  always @(posedge clk) begin
+    if (we) mem[wa] <= wd;
+    q <= mem[ra];
+  end
+  reg [15:0] rf [0:3];        // 64 bit: mapped to flip-flops
+  always @(posedge clk) if (we) rf[wa[1:0]] <= wd;
+  assign small_q = rf[ra[1:0]];
+endmodule
+"""
+
+
+def test_big_memory_stays_a_macro_in_the_gate_view(tmp_path):
+    src = tmp_path / "bigmem.v"
+    src.write_text(BIGMEM)
+    data = build(tmp_path, src, stage="gate")
+    cells = json.loads(data.read_text())["views"]["gate"]["modules"]["bigmem"]["hier"]["net"]["cells"]
+    mems = [c for c in cells.values() if c[0] == "$mem_v2"]
+    assert len(mems) == 1 and int(mems[0][2]["SIZE"], 2) == 512
+    assert len(cells) < 400                                      # not 8192 flip-flops plus decoders
+    ops = [["set", "we", 1], ["set", "wa", 300], ["set", "wd", 0xBEEF], ["clock", "clk", 1],
+           ["set", "wa", 2], ["set", "wd", 0x1234], ["clock", "clk", 1], ["set", "we", 0],
+           ["set", "ra", 300], ["clock", "clk", 1], ["get", "q"], ["set", "ra", 2], ["get", "small_q"]]
+    assert simulate(tmp_path, data, "gate", ops) == [0xBEEF, 0x1234]
+    # the timing analysis sees the macro: its pins are endpoints, its read data a launch point
+    from test_timing import run_js
+    net = json.loads(data.read_text())["views"]["gate"]["modules"]["bigmem"]["hier"]["net"]
+    res = run_js(tmp_path, """const r = T.analyzeTiming(DATA, { period: 2000 });
+      console.log(JSON.stringify({ eps: r.endpoints.map((e) => e.name), unknown: r.unknown }));""", net)
+    assert any("(WR_DATA)" in e for e in res["eps"]) and "$mem_v2" not in res["unknown"]

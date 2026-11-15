@@ -234,3 +234,24 @@ def test_view_urls(proj):
         server.shutdown()
         server.server_close()
         la.shutdown()
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="needs node")
+def test_generated_pages_have_valid_scripts(proj, tmp_path):
+    """Every inline script of the pages the launcher writes parses (Python strings hide JS escapes)."""
+    import re
+    import subprocess
+
+    from veriview.launcher import Build, building_page, editor_page, error_page, page
+    from veriview.watch import LIVE_RELOAD_JS
+    la = Launcher(proj)
+    pages = {"start": page(la).decode(), "editor": editor_page("/x").decode(),
+             "building": building_page({"title": "t"}, Build("b1", [], live=True)).decode(),
+             "error": error_page("Synthesis failed.\nTry a synthesizable top module: a, b",
+                                 {"title": "t", "files": ["x.sv"]}, LIVE_RELOAD_JS).decode()}
+    for name, html in pages.items():
+        for i, js in enumerate(re.findall(r"<script>(.*?)</script>", html, re.S)):
+            f = tmp_path / f"{name}{i}.js"
+            f.write_text(js.replace("/*__EDITOR_DATA__*/null", "null"))
+            r = subprocess.run([shutil.which("node"), "--check", str(f)], capture_output=True, text=True)
+            assert r.returncode == 0, f"{name} script {i}: {r.stderr}"

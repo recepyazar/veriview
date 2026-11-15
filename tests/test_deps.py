@@ -181,3 +181,22 @@ def test_error_locations_both_slang_formats():
             "rtl/x.sv:3:1: warning: not an error location\n")
     locs = [(m.group(1) or m.group(3), int(m.group(2) or m.group(4))) for m in _ERR_LOC_RE.finditer(text)]
     assert locs == [("rtl/soc.sv", 17), ("rtl/soc.sv", 54), ("rtl/dram.sv", 69)]
+
+
+def test_killed_yosys_is_reported(tmp_path, monkeypatch):
+    import os
+
+    import pytest
+
+    from veriview.log import VeriViewError
+    if os.name != "posix":
+        pytest.skip("POSIX signals")
+    fake = tmp_path / "yosys"
+    fake.write_text("#!/bin/sh\nkill -9 $$\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("VERIVIEW_YOSYS", str(fake))
+    (tmp_path / "a.sv").write_text("module a; endmodule\n")
+    s = Synthesizer(collect_sources([str(tmp_path / "a.sv")], [], [], resolve=False), tmp_path)
+    with pytest.raises(VeriViewError, match="stopped by signal 9.*out of memory"):
+        s.synthesize("a", tmp_path / "a.json")
+    assert list(s.errors) == ["yosys"]          # not retried with other frontends

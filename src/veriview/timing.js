@@ -13,6 +13,9 @@
  *  - primary inputs arrive at `inputDelay`, primary outputs must be stable by
  *        period - outputDelay - uncertainty
  *  - asynchronous set/reset/load pins are not timed (no recovery/removal checks)
+ *  - memories kept as macros ($mem_v2, big memories in the gate view) launch their read data
+ *    `access` after the clock (combinationally after the address for asynchronous read ports);
+ *    their write ports and clocked read ports are setup/hold endpoints
  *
  * The default library is a generic, illustrative one (values roughly in the range of a
  * 130 nm standard-cell library). It is not a sign-off model.
@@ -42,6 +45,7 @@ const GENERIC_LIB = {
     $_OAI4_: { d: 40, k: 10, area: 8.76 },
   },
   ff: { clk2q: 120, k: 5, setup: 80, hold: 30, area: 20.02, areaReset: 25.02, areaEnable: 3.75 },
+  mem: { access: 600, k: 5, areaPerBit: 2.5 },   // SRAM macro (rough)
 };
 
 const FF_RE = /^\$_(DFF|DFFE|SDFF|SDFFE|SDFFCE|DFFSR|DFFSRE|ALDFF|ALDFFE|DLATCH|DLATCHSR)_[PN01]+_$/;
@@ -54,6 +58,11 @@ const ffDataPins = (type) => {
   return pins;
 };
 const ffClockPin = (type) => (FF_RE.exec(type)[1].startsWith("DLATCH") ? "E" : "C");
+const memParam = (cell, k) => String((cell[2] && cell[2][k]) || "");
+// a memory macro: are all its read ports clocked (then it acts like a register bank)?
+const memClocked = (cell) => !/0/.test(memParam(cell, "RD_CLK_ENABLE").replace(/[xz]/g, "0") || "0");
+const memDataPins = (cell) => ["WR_ADDR", "WR_DATA", "WR_EN", ...(memClocked(cell) ? ["RD_ADDR", "RD_EN", "RD_SRST"] : [])];
+const pInt = (cell, k) => { const v = memParam(cell, k); return /^[01]+$/.test(v) ? parseInt(v, 2) : Number(v) || 0; };
 
 // "2ns", "500 ps", "250MHz", "1.5" (ns) -> picoseconds
 function parseTime(text, defaultUnit = "ns") {
@@ -90,10 +99,16 @@ function analyzeTiming(net, options = {}) {
   const kind = new Map(), delay = new Map(), unknown = new Set();
   let area = 0;
   const counts = {};
-  for (const [name, [type, conns]] of cells) {
+  for (const [name, cell] of cells) {
+    const [type, conns] = cell;
     counts[type] = (counts[type] || 0) + 1;
     const fo = Math.max(1, ...outBits(conns).map((b) => fanout.get(b) || 0));
-    if (lib.cells[type]) {
+    if (type === "$mem_v2") {
+      const m = lib.mem || GENERIC_LIB.mem;
+      kind.set(name, memClocked(cell) ? "ff" : "comb");
+      delay.set(name, m.access + m.k * fo);
+      area += pInt(cell, "SIZE") * pInt(cell, "WIDTH") * m.areaPerBit;
+    } else if (lib.cells[type]) {
       kind.set(name, "comb");
       delay.set(name, lib.cells[type].d + lib.cells[type].k * fo);
       area += lib.cells[type].area;
@@ -169,14 +184,19 @@ function analyzeTiming(net, options = {}) {
   })();
   const endpoints = [];
   const setupReq = period - lib.ff.setup - unc;
-  for (const [name, [type, conns]] of cells) {
-    if (kind.get(name) !== "ff") continue;
+  for (const [name, cell] of cells) {
+    const [type, conns] = cell;
+    const isMem = type === "$mem_v2";
+    if (kind.get(name) !== "ff" && !isMem) continue;
     const q = outBits(conns)[0];
-    const reg = q !== undefined ? bitName(q) : name;
-    for (const pin of ffDataPins(type)) {
-      const b = conns[pin] && conns[pin][1][0];
-      if (!isNum(b)) continue;
-      const amax = arrMax.has(b) ? arrMax.get(b) : 0, amin = arrMin.has(b) ? arrMin.get(b) : 0;
+    const reg = isMem ? `${memParam(cell, "MEMID").replace(/^\\/, "") || name}` : q !== undefined ? bitName(q) : name;
+    for (const pin of isMem ? memDataPins(cell) : ffDataPins(type)) {
+      // the latest-arriving bit of the pin (flip-flop pins have one bit)
+      const bits = (conns[pin] ? conns[pin][1] : []).filter(isNum);
+      if (!bits.length) continue;
+      const b = bits.reduce((x, y) => ((arrMax.get(y) || 0) > (arrMax.get(x) || 0) ? y : x));
+      const amax = arrMax.has(b) ? arrMax.get(b) : 0;
+      const amin = Math.min(...bits.map((x) => (arrMin.has(x) ? arrMin.get(x) : 0)));   // hold: the earliest bit
       endpoints.push({
         kind: "ff", cell: name, pin, bit: b, name: `${reg} (${pin})`, arrival: amax, minArrival: amin,
         required: setupReq, slack: setupReq - amax, holdSlack: amin - (lib.ff.hold + unc),

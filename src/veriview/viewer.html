@@ -490,6 +490,7 @@ VV_DATA.then((DATA) => {
     "⤓ Viewer as HTML": "⤓ Görüntüleyiciyi HTML olarak indir",
     "Save this viewer as a single HTML file (works without VeriView)": "Bu görüntüleyiciyi tek bir HTML dosyası olarak kaydet (VeriView olmadan çalışır)",
     "◐ Light / dark": "◐ Açık / koyu",
+    "Preparing the simulation of {n} cells…": "{n} hücrelik simülasyon hazırlanıyor…",
     "Too large to draw: {n} cells.": "Çizilemeyecek kadar büyük: {n} hücre.",
     "This schematic could not be drawn ({n} cells).": "Bu şema çizilemedi ({n} hücre).",
     "Not drawn: laying out {n} cells took too long.": "Çizilmedi: {n} hücrenin yerleşimi çok uzun sürdü.",
@@ -2019,7 +2020,25 @@ VV_DATA.then((DATA) => {
   }
   if (DATA.stages.length < 2) $("stages").parentElement.style.display = "none";
   $("btn-flat").onclick = () => go({ flat: !state.flat });
-  $("btn-sim").onclick = () => go({ sim: !state.sim, timing: false });
+  // big designs: say what is happening before the browser is busy building the simulator
+  const totalCells = () => Object.values(mods()).reduce((n, m) => n + ((m.hier && m.hier.cells) || 0), 0);
+  const busyNote = (msg) => {
+    let b = document.getElementById("vv-busy");
+    if (!msg) { if (b) b.remove(); return; }
+    if (!b) {
+      b = document.createElement("div"); b.id = "vv-busy";
+      b.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:900;" +
+        "background:rgba(0,0,0,.25);font:15px system-ui,sans-serif";
+      document.body.append(b);
+    }
+    b.innerHTML = `<div style="background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:16px 22px">${escapeHtml(msg)}</div>`;
+  };
+  $("btn-sim").onclick = () => {
+    const n = totalCells();
+    if (state.sim || n < 20000) return go({ sim: !state.sim, timing: false });
+    busyNote(_t("Preparing the simulation of {n} cells…", { n: n.toLocaleString() }));
+    setTimeout(() => { try { go({ sim: true, timing: false }); } finally { busyNote(null); } }, 50);
+  };
   $("btn-fsm").onclick = () => go({ fsm: !state.fsm, timing: false });
   $("btn-timing").onclick = () => go({ timing: !state.timing, sim: false, fsm: false,
     stage: !state.timing && DATA.views.gate ? "gate" : state.stage });

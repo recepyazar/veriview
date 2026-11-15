@@ -43,6 +43,7 @@ function createSimulator(netOf, isModule) {
     top: null, inputs: new Map(), regs: new Map(), mems: new Map(), vals: new Map(), ffCache: new Map(),
     dirty: new Map(),       // instance key -> bits changed since its last evaluation
     seen: new Map(),        // instance key -> which cells were evaluated at least once
+    regsAt: new Map(),      // instance key -> register state by cell position (no per-pass string keys)
     unsupported: new Set(), cycle: 0, loopWarn: false,
     userSet: new Set(),     // inputs the user changed (others get defaults on reset)
     resetPorts: new Map(),  // top-level input -> inactive level, for inputs that drive register resets
@@ -312,7 +313,9 @@ function createSimulator(netOf, isModule) {
     // combinational cells are only re-evaluated when one of their input bits changed
     const gated = cells.map(([name, cell]) => !isState([name, cell]) && !isModule(cell[0]));
     const insOf = cells.map(([, cell]) => ins(cell));
-    const o = { cells, minReader, gated, insOf };
+    const ffd = cells.map(([name, cell]) => ffOf(modName, name, cell));
+    const isMod = cells.map(([, cell]) => isModule(cell[0]));
+    const o = { cells, minReader, gated, insOf, ffd, isMod };
     orderCache.set(modName, o);
     return o;
   }
@@ -324,9 +327,11 @@ function createSimulator(netOf, isModule) {
     if (!dirty) { dirty = new Set(); sim.dirty.set(key, dirty); }
     for (const [b, v] of inVals) if (vals.get(b) !== v) { vals.set(b, v); dirty.add(b); }
     if (depth > 64) return vals;
-    const { cells, minReader, gated, insOf } = orderOf(modName);
+    const { cells, minReader, gated, insOf, ffd, isMod } = orderOf(modName);
     let seen = sim.seen.get(key);
     if (!seen) { seen = new Uint8Array(cells.length); sim.seen.set(key, seen); }
+    let regsAt = sim.regsAt.get(key);
+    if (!regsAt) { regsAt = []; sim.regsAt.set(key, regsAt); }
     for (let pass = 0; pass < 200; pass++) {
       let again = false, pos = 0;
       const write = (bits, v) => bits.forEach((b, i) => {
@@ -347,22 +352,30 @@ function createSimulator(netOf, isModule) {
         seen[pos] = 1;
         const [name, cell] = cells[pos];
         const [type, conns] = cell;
-        const sigs = (p) => (conns[p] ? rd(vals, conns[p][1]) : []);
-        const ff = ffOf(modName, name, cell);
+        const ff = ffd[pos];
         if (ff) {
-          const rk = key + "\u0000" + name;
-          let reg = sim.regs.get(rk);
-          if (!reg) { reg = { q: new Array(ff.w).fill(0), prev: null, d: ff, key, mod: modName, name }; sim.regs.set(rk, reg); }
-          reg.q = asyncQ(ff, reg.q, sigs);
+          let reg = regsAt[pos];
+          if (!reg) {
+            const rk = key + "\u0000" + name;
+            reg = sim.regs.get(rk);
+            if (!reg) { reg = { q: new Array(ff.w).fill(0), prev: null, d: ff, key, mod: modName, name }; sim.regs.set(rk, reg); }
+            regsAt[pos] = reg;
+          }
+          // only flip-flops with asynchronous controls (or latches) change outside a clock edge
+          if (ff.latch || ff.aload || ff.set || ff.clr || ff.arst) {
+            const sigs = (p) => (conns[p] ? rd(vals, conns[p][1]) : []);
+            reg.q = asyncQ(ff, reg.q, sigs);
+          }
           if (conns.Q) write(conns.Q[1], reg.q);
           continue;
         }
         if (type === "$mem_v2") {
+          const sigs = (p) => (conns[p] ? rd(vals, conns[p][1]) : []);
           const m = memState(key, name, cell, modName);
           if (conns.RD_DATA) write(conns.RD_DATA[1], memOutputs(m, sigs));
           continue;
         }
-        if (isModule(type)) {
+        if (isMod[pos]) {
           const child = hierNet(type), cin = new Map();
           for (const [p, [dir, pb]] of Object.entries(child.ports)) {
             if (dir === "output" || !conns[p]) continue;
@@ -473,7 +486,8 @@ function createSimulator(netOf, isModule) {
   // Reset all registers to 0. Inputs the user set are kept (keepInputs); all others start
   // at 0, except inputs that drive a register reset, which start inactive (e.g. rst_n = 1).
   function simReset(keepInputs = true) {
-    sim.regs.clear(); sim.mems.clear(); sim.vals.clear(); sim.dirty.clear(); sim.seen.clear(); sim.ffCache.clear(); sim.unsupported.clear(); sim.cycle = 0;
+    sim.regs.clear(); sim.mems.clear(); sim.vals.clear(); sim.dirty.clear(); sim.seen.clear(); sim.regsAt.clear();
+    sim.ffCache.clear(); sim.unsupported.clear(); sim.cycle = 0;
     if (!keepInputs) { sim.inputs.clear(); sim.userSet.clear(); }
     const n = hierNet(sim.top), fresh = [];
     for (const [p, [dir, pb]] of Object.entries(n.ports)) {

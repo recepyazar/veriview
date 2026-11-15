@@ -109,6 +109,61 @@ def _bit_names(mod: dict[str, Any]) -> dict[int, str]:
     return names
 
 
+_LITERAL = re.compile(r"^\s*(\d*)\s*'?\s*([sS]?[bBoOdDhH])?\s*([0-9a-fA-F_]+)\s*$")
+
+
+def _literal(text: str) -> int | None:
+    m = _LITERAL.match(text)
+    if not m:
+        return None
+    _size, base, digits = m.groups()
+    try:
+        return int(digits.replace("_", ""), {"b": 2, "o": 8, "d": 10, "h": 16}[(base or "d")[-1].lower()])
+    except (ValueError, KeyError):
+        return None
+
+
+def _enum_items(body: str) -> dict[int, str]:
+    """'A, B = 3, C' -> {0: A, 3: B, 4: C} (implicit values count up from the previous one)."""
+    out: dict[int, str] = {}
+    nxt = 0
+    for item in body.split(","):
+        name, _, val = item.partition("=")
+        name = name.strip()
+        if not re.match(r"^[A-Za-z_]\w*$", name):
+            return {}
+        if val.strip():
+            v = _literal(val)
+            if v is None:
+                return {}
+            nxt = v
+        out.setdefault(nxt, name)
+        nxt += 1
+    return out
+
+
+def _enum_from_source(text: str, reg: str, width: int) -> dict[int, str]:
+    """State names of register `reg` declared with an enum type in this source text."""
+    if not text or not reg:
+        return {}
+    t = re.sub(r"//[^\n]*|/\*.*?\*/", " ", text, flags=re.S)
+    r = re.escape(reg)
+    # enum logic [1:0] { A, B } st;   /   enum { A, B } a, st;
+    m = re.search(r"\benum\b[^{;]*\{([^}]*)\}\s*(?:[A-Za-z_]\w*\s*,\s*)*" + r + r"\b", t)
+    body = m.group(1) if m else None
+    if body is None:
+        # st_e st;  /  st_e st, st_q;  ->  typedef enum ... { ... } st_e;
+        for d in re.finditer(r"\b([A-Za-z_]\w*)\s+(?:[A-Za-z_]\w*\s*,\s*)*" + r + r"\s*[;,=]", t):
+            e = re.search(r"\btypedef\s+enum\b[^{;]*\{([^}]*)\}\s*" + re.escape(d.group(1)) + r"\s*;", t)
+            if e:
+                body = e.group(1)
+                break
+    if body is None:
+        return {}
+    items = _enum_items(body)
+    return {v: n for v, n in items.items() if v < (1 << width)}
+
+
 def _state_names(mod: dict[str, Any], reg: str, width: int, reader: SourceReader) -> dict[int, str]:
     """Encoding -> name, from enum attributes or from localparams/parameters in the source."""
     net = mod.get("netnames", {}).get(reg) or mod.get("netnames", {}).get("\\" + reg) or {}
@@ -119,8 +174,16 @@ def _state_names(mod: dict[str, Any], reg: str, width: int, reader: SourceReader
             out[int(k[len("enum_value_"):].replace("x", "0"), 2)] = _strip(str(v))
     if out:
         return out
-    # localparam IDLE = 2'b00, RUN = 2'd1;  /  parameter S0 = 0;
+    # the source: the register's own location, else the module's file (slang keeps no net locations)
     files = {p.rsplit(":", 1)[0] for p in str(net.get("attributes", {}).get("src", "")).split("|") if ":" in p}
+    files |= {p.rsplit(":", 1)[0] for p in str(mod.get("attributes", {}).get("src", "")).split("|") if ":" in p}
+    # typedef enum logic [2:0] { S_IDLE, S_REQ = 3'd2, ... } st_e;  st_e st;   (Yosys' own parser stores
+    # these as enum_value_* attributes; other frontends do not)
+    for f in sorted(files):
+        names = _enum_from_source(reader.text(f), reg.split(".")[-1], width)
+        if names:
+            return names
+    # localparam IDLE = 2'b00, RUN = 2'd1;  /  parameter S0 = 0;
     decl = re.compile(r"\b(?:localparam|parameter)\b([^;]*);", re.S)
     item = re.compile(r"(?:\[[^\]]*\]\s*)?([A-Za-z_]\w*)\s*=\s*(\d*)'?\s*([sS]?[bBoOdDhH])?\s*([0-9a-fA-F_xXzZ]+)")
     for f in files:
@@ -260,15 +323,33 @@ def _minimize(cubes: list[str], n: int) -> list[str]:
     return chosen
 
 
+def _loose(expr: str) -> bool:
+    """Whether a source expression binds looser than && at its top level (|| or ?:): it then needs
+    parentheses inside a product."""
+    depth = 0
+    for i, ch in enumerate(expr):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif depth == 0 and (expr.startswith("||", i) or ch == "?"):
+            return True
+    return False
+
+
 def _cond(cubes: list[str], labels: list[str]) -> str:
     sums = []
     for c in cubes:
         terms = []
+        product = sum(ch != "-" for ch in c) > 1
         for i, ch in enumerate(c):
             if ch == "-":
                 continue
             lab = labels[i]
-            terms.append(lab if ch == "1" else (f"!{lab}" if re.fullmatch(r"[\w\[\].]+", lab) else f"!({lab})"))
+            if ch == "1":
+                terms.append(f"({lab})" if product and _loose(lab) else lab)
+            else:
+                terms.append(f"!{lab}" if re.fullmatch(r"[\w\[\].]+", lab) else f"!({lab})")
         # stable order (by signal/expression, ignoring negation) so labels do not depend on Yosys' port order
         terms.sort(key=lambda t: t.lstrip("!(").lower())
         sums.append(" && ".join(terms) or "1")

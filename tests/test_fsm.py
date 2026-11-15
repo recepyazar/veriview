@@ -116,3 +116,19 @@ def test_several_fsms_in_viewer(tmp_path):
         "multi_fsm": ["hs", "ph"], "seq_fsm": ["state"], "traffic": ["state"]}
     ph = next(f for f in data["fsms"]["multi_fsm"] if f["name"] == "ph")
     assert ph["states"][ph["reset"]]["name"] == "P_A"
+
+
+def test_condition_keeps_source_precedence():
+    from veriview.fsm import _cond, _enum_from_source
+    # a source expression with || must stay grouped inside a product (&& binds tighter)
+    labels = ["lvl == 2'd0 || d[7]", "m_rvalid", "!flush"]
+    assert _cond(["111"], labels) == "!flush && (lvl == 2'd0 || d[7]) && m_rvalid"
+    assert _cond(["11"], ["s ? a : b", "c"]) == "c && (s ? a : b)"
+    assert _cond(["1"], ["!car || t == 3'd5"]) == "!car || t == 3'd5"                  # alone: no parentheses
+    assert _cond(["11"], ["(a || b)", "c"]).count("(a || b)") == 1                   # already grouped
+    assert _cond(["0"], ["a || b"]) == "!(a || b)"
+    # state names from SystemVerilog enums (frontends other than Yosys' own keep no enum attributes)
+    src = "typedef enum logic [2:0] { S_IDLE, S_REQ, S_WAIT = 3'd4, S_RESP } st_e;\\n  st_e st, st_q;\\n"
+    assert _enum_from_source(src, "st", 3) == {0: "S_IDLE", 1: "S_REQ", 4: "S_WAIT", 5: "S_RESP"}
+    assert _enum_from_source("enum logic [1:0] {A, B} other, st;", "st", 2) == {0: "A", 1: "B"}
+    assert _enum_from_source("logic [1:0] st;", "st", 2) == {}

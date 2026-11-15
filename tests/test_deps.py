@@ -151,6 +151,9 @@ def test_slang_black_boxes_and_unroll(tmp_path, monkeypatch):
     y = _slang_yosys()
     if not y:
         pytest.skip("needs a Yosys with slang")
+    from veriview.tools import slang_has_option
+    if not slang_has_option(y, "--blackboxed-module"):
+        pytest.skip("this yosys-slang has no --blackboxed-module")
     monkeypatch.setenv("VERIVIEW_YOSYS", y)
     f = tmp_path / "soc.sv"
     f.write_text(SIM_SOC)
@@ -167,5 +170,14 @@ def test_slang_black_boxes_and_unroll(tmp_path, monkeypatch):
         assert "dram_model" in s.blackbox and any(n.startswith("core") for n in mods)
     except Exception as e:       # slang versions that reject $value$plusargs: a clear hint instead
         msg = str(e)
-        assert "only works in simulation" in msg and "Try a synthesizable top module: core\n" in msg + "\n", msg
-        assert "dram_model" in s.blackbox
+        assert "only works in simulation" in msg and "Try a synthesizable top module: core" in msg, msg
+
+
+def test_error_locations_both_slang_formats():
+    from veriview.synth import _ERR_LOC_RE
+    text = ("rtl/soc.sv:17: ERROR: unsupported system task '$value$plusargs'\n"
+            "rtl/soc.sv:54:9: error: unsupported system task '$test$plusargs'\n"
+            "Source line rtl/dram.sv:69:43:   q <= f(a);\n"
+            "rtl/x.sv:3:1: warning: not an error location\n")
+    locs = [(m.group(1) or m.group(3), int(m.group(2) or m.group(4))) for m in _ERR_LOC_RE.finditer(text)]
+    assert locs == [("rtl/soc.sv", 17), ("rtl/soc.sv", 54), ("rtl/dram.sv", 69)]

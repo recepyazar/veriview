@@ -20,7 +20,8 @@ FRONTENDS = ("auto", "yosys", "sv2v", "slang")
 # Errors caused by the design/invocation itself rather than parser support.
 _DESIGN_ERROR_RE = re.compile(r"Module `[^']*' not found|Can't open include file")
 # where an error happened: yosys-slang's "Source line f.sv:12:5:", slang's "f.sv:12:5: error:"
-_ERR_LOC_RE = re.compile(r"^Source line (\S+?):(\d+)(?::\d+)?:|^(\S+?):(\d+):\d+: error:", re.M)
+# (older yosys-slang versions print "f.sv:12: ERROR: ...")
+_ERR_LOC_RE = re.compile(r"^Source line (\S+?):(\d+)(?::\d+)?:|^(\S+?):(\d+)(?::\d+)?: (?:error|ERROR):", re.M)
 _MODULE_RE = re.compile(r"^[ \t]*(?:macromodule|module)\s+(?:automatic\s+|static\s+)?(\w+)|^[ \t]*(endmodule)\b", re.M)
 MAX_BLACKBOXES = 8
 
@@ -225,7 +226,8 @@ class Synthesizer:
         if r.returncode != 0:
             # with -q, diagnostics (e.g. slang's "f.sv:12:5: error: ...") only reach the log file
             try:
-                diag = [ln for ln in log_file.read_text(errors="replace").splitlines() if re.search(r": error: ", ln)]
+                diag = [ln for ln in log_file.read_text(errors="replace").splitlines()
+                        if re.search(r"^\S+:\d+(?::\d+)?: (?:error|ERROR): ", ln)]
             except OSError:
                 diag = []
             out = (r.stdout + r.stderr).strip()

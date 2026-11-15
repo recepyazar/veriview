@@ -9,6 +9,7 @@ import pytest
 from conftest import EX, needs_sv, needs_tools
 
 from veriview.cli import main
+from veriview.tools import find_tool
 
 pytestmark = needs_tools
 
@@ -352,7 +353,10 @@ def test_html_viewer_source_links(tmp_path):
 @needs_sv
 def test_html_viewer_sources_sv2v(tmp_path):
     out = tmp_path / "m.html"
-    assert vv(EX / "mux" / "mux.sv", "--html", "--html-stages", "opt", "-o", out) == 0
+    if not find_tool("sv2v"):
+        pytest.skip("needs sv2v")
+    # (with --frontend auto, a Yosys with slang reads mux.sv directly: no converted source)
+    assert vv(EX / "mux" / "mux.sv", "--frontend", "sv2v", "--html", "--html-stages", "opt", "-o", out) == 0
     srcs = _viewer_data(out)["sources"]
     conv = [v for p, v in srcs.items() if p.endswith(".sv2v.v")]
     assert conv and "sv2v" in conv[0]["note"]

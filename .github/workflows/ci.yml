@@ -24,6 +24,9 @@ jobs:
 
       # Recent Yosys (Ubuntu's apt package is too old for some features)
       - uses: YosysHQ/setup-oss-cad-suite@v3
+        with:
+          # authenticated API requests: the anonymous limit of the shared runner IPs runs out
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install VeriView and dependencies
         run: |

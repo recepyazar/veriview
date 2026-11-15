@@ -307,7 +307,9 @@ VeriView was taken through a 64-bit out-of-order RISC-V core (about 60 files, 20
 - **slang's limits:** long loops get a higher unroll limit automatically, the hierarchy is kept (`--keep-hierarchy`), and slang's diagnostics are shown instead of its AST dumps.
 - **Schematics:** netlistsvg runs through `netlistsvg_fast.js`, which replaces its bus split/join search (recursive and quadratic on wide buses: "Maximum call stack size exceeded") with an indexed loop that produces the identical drawing. Views above 300 cells use faster layout settings; views above 3000 cells (or flattened views above 400) are not drawn, nor are views whose layout takes over 2 minutes (`VERIVIEW_DRAW_TIMEOUT`) — they show a note, their sub-modules, the simulation and the timing analysis still work. One schematic failing never loses the whole viewer.
 - **Memories** become one `$mem_v2` cell each and are simulated; in the gate view memories of 2 kbit and more stay memory macros (like SRAMs) rather than flip-flops, which keeps a core with caches in reach of a laptop's memory.
-- **The viewer file:** above 8 MB of data it is embedded gzip-compressed and unpacked by the browser (173 MB → 19 MB for the core); FSM extraction runs while the schematics are drawn; the start page shows the build's progress while a big design builds.
+- **The gate view** is skipped above 25 000 cells in the optimized design (`--gate-limit`, 0 = no limit): gate-level synthesis of a whole core with its FPU needs more memory than a laptop has. The disabled *Gates* button says why.
+- **Opening from the start page:** for a big design (more than 40 views or 5000 cells) only each view's top is drawn up front; every other schematic is drawn the first time it is opened (a few seconds to a minute), and *⋯ → Viewer as HTML* draws the rest for a self-contained file. The views and the FSM extraction are synthesized in parallel, and the start page shows the build's progress. The core opens in under 5 minutes.
+- **The viewer file:** big data is embedded gzip-compressed, each schematic separately, unpacked by the browser only when shown (the browser never holds all of it at once).
 
 ## File lists (.f)
 

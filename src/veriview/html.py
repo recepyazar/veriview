@@ -215,25 +215,37 @@ def draw_view(jpath: Path, svg_path: Path, what: str, cells: int, skin: Path | N
     return strip_xml_decl(svg)
 
 
-# Launcher builds of big designs: schematics above this size are drawn when first opened
-LAZY_MIN_CELLS = 200
+# Launcher builds of big designs (more views or cells than below): only each view's top is drawn up
+# front; every other schematic (flattened ones too) is drawn by render_lazy() when first opened
+LAZY_MIN_VIEWS = 40
+LAZY_MIN_CELLS = 5000
 _lazy_locks: dict[str, threading.Lock] = {}
 _lazy_guard = threading.Lock()
 
 
-def render_lazy(lazy_dir: Path, idx: int) -> str:
-    """Draw (once) a schematic left for later by build_viewer(lazy_dir=...)."""
-    done = lazy_dir / f"view{idx}.done.svg"
+def render_lazy(lazy_dir: Path, idx: int) -> dict[str, Any]:
+    """Draw (once) a view left for later by build_viewer(lazy_dir=...): {"svg": ..., "net": slim netlist}."""
+    done = lazy_dir / f"view{idx}.done.json"
     with _lazy_guard:
         lock = _lazy_locks.setdefault(f"{lazy_dir}:{idx}", threading.Lock())
     with lock:
         if done.is_file():
-            return done.read_text(encoding="utf-8")
+            return json.loads(done.read_text(encoding="utf-8"))
         meta = json.loads((lazy_dir / f"view{idx}.meta.json").read_text(encoding="utf-8"))
         skin = Path(meta["skin"]) if meta.get("skin") else None
-        svg = draw_view(lazy_dir / f"view{idx}.json", lazy_dir / f"view{idx}.svg", meta["what"], meta["cells"], skin)
-        done.write_text(svg, encoding="utf-8")
-        return svg
+        jpath = lazy_dir / f"view{idx}.json"
+        out: dict[str, Any] = {}
+        if meta.get("flat"):   # flattened view: flatten now (Yosys), then draw
+            sub = json.loads((lazy_dir / f"view{idx}.sub.json").read_text(encoding="utf-8"))
+            root = meta["root"]
+            sub = postprocess(meta["yosys"], lazy_dir, sub, root, flatten=True, cones=[], tag=f"lazyflat{idx}")
+            mod = sub["modules"][root]
+            jpath.write_text(json.dumps(_single_module(sub, root, mod)))
+            out["net"] = slim_netlist(mod)
+            meta["cells"] = len(mod.get("cells", {}))
+        out["svg"] = draw_view(jpath, lazy_dir / f"view{idx}.svg", meta["what"], meta["cells"], skin)
+        done.write_text(json.dumps(out), encoding="utf-8")
+        return out
 
 
 def complete_viewer(lazy_dir: Path, out_html: Path) -> None:
@@ -243,7 +255,10 @@ def complete_viewer(lazy_dir: Path, out_html: Path) -> None:
         for e in v["modules"].values():
             for k in ("hier", "flat"):
                 if k in e and "lazy" in e[k]:
-                    e[k]["svg"] = render_lazy(lazy_dir, e[k].pop("lazy"))
+                    r = render_lazy(lazy_dir, e[k].pop("lazy"))
+                    e[k]["svg"] = r["svg"]
+                    if r.get("net"):
+                        e[k]["net"], e[k]["cells"] = r["net"], len(r["net"]["cells"])
     write_page(data, out_html, data.pop("_title", None))
 
 
@@ -293,12 +308,12 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
         shutil.rmtree(lazy_dir, ignore_errors=True)
         lazy_dir.mkdir(parents=True)
         tops = {st: find_top(net["modules"]) for st, net in stage_netlists.items()}
-        for idx, (st, name, flat) in enumerate(jobs):
-            n = len(stage_netlists[st]["modules"][name].get("cells", {}))
-            if not flat and idx not in too_big and n > LAZY_MIN_CELLS and name != tops[st]:
-                lazy.add(idx)
+        total = sum(len(m.get("cells", {})) for net in stage_netlists.values() for m in net["modules"].values())
+        if len(jobs) > LAZY_MIN_VIEWS or total > LAZY_MIN_CELLS:
+            lazy = {idx for idx, (st, name, flat) in enumerate(jobs)
+                    if idx not in too_big and (flat or name != tops[st])}
         if lazy:
-            log.info(f"{len(lazy)} bigger schematic(s) will be drawn when first opened")
+            log.info(f"{len(lazy)} of {len(jobs)} schematics will be drawn when first opened (a big design)")
 
     def run(idx: int) -> tuple[str, dict[str, Any]]:
         st, name, flat = jobs[idx]
@@ -308,6 +323,13 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
             if flat:   # the flattened netlist itself is not needed: no schematic, no simulation of it
                 return placeholder_svg("big", too_big[idx]), {"cells": {}, "ports": {}, "names": {}, "skipped": True}
             return placeholder_svg("big", too_big[idx]), slim_netlist(mod)
+        if flat and idx in lazy:   # flattened later, when opened (Yosys run in render_lazy)
+            sub, root = reroot(net, name)
+            (lazy_dir / f"view{idx}.sub.json").write_text(json.dumps(sub))
+            (lazy_dir / f"view{idx}.meta.json").write_text(json.dumps(
+                {"what": f"{name} (flattened)", "flat": True, "root": root, "yosys": yosys, "cells": 0,
+                 "skin": str(skin.resolve()) if skin else None}))
+            return None, None
         if flat:
             sub, root = reroot(net, name)
             sub = postprocess(yosys, work_dir, sub, root, flatten=True, cones=[], tag=f"flat{idx}")
@@ -341,7 +363,11 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
             "children": user_children(net["modules"], name),
         })
         v = {"svg": svg} if svg is not None else {"lazy": idx}   # lazy: drawn by the launcher on demand
-        entry["flat" if flat else "hier"] = {**v, "net": slim, "cells": len(slim["cells"])}
+        if slim is None:   # a flattened view left for later: its netlist comes with the schematic
+            mods_ = stage_netlists[st]["modules"]
+            entry["flat"] = {**v, "net": None, "cells": flat_cells(mods_, name)}
+        else:
+            entry["flat" if flat else "hier"] = {**v, "net": slim, "cells": len(slim["cells"])}
 
     first = views[stages[0]]
     data = {

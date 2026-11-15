@@ -518,14 +518,16 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
                 if not b or not b.html.is_file():
                     return self._send(404, "text/plain", b"no such viewer")
                 return self._viewer(b, query)
-            if path.startswith("/api/svg/"):   # a schematic left for later (html.render_lazy)
-                parts = path[len("/api/svg/"):].split("/")
+            if path.startswith("/api/view/"):   # a view left for later: {svg, net} (html.render_lazy)
+                parts = path[len("/api/view/"):].split("/")
                 b = launcher.builds.get(parts[0]) if len(parts) == 2 else None
                 if not b or not parts[1].isdigit() or not (b.dir / "lazy" / f"view{parts[1]}.meta.json").is_file():
                     return self._send(404, "text/plain", b"no such view")
                 from .html import render_lazy
-                return self._send(200, "image/svg+xml; charset=utf-8",
-                                  render_lazy(b.dir / "lazy", int(parts[1])).encode("utf-8"))
+                try:
+                    return self._json(render_lazy(b.dir / "lazy", int(parts[1])))
+                except (VeriViewError, OSError, ValueError, KeyError) as e:
+                    return self._json({"error": str(e)}, 500)
             if path.startswith("/api/status/"):
                 try:
                     return self._json(launcher.status(path[len("/api/status/"):]))

@@ -1772,8 +1772,14 @@ VV_DATA.then((DATA) => {
         canvas.innerHTML = `<p style="padding:20px;color:var(--muted)">${escapeHtml(_t("Drawing the schematic ({n} cells)…", { n: v.cells }))}</p>`;
         if (unpacking !== v) {
           unpacking = v;
-          fetch(`/api/svg/${srv.build}/${v.lazy}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.statusText))))
-            .then((t) => { v.svg = t; delete v.lazy; unpacking = null; if (variant(mods()[moduleOf(state.path)]) === v) show(); })
+          fetch(`/api/view/${srv.build}/${v.lazy}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.statusText))))
+            .then((r) => {
+              if (r.error) throw new Error(r.error);
+              v.svg = r.svg;
+              if (r.net) { v.net = r.net; v.cells = Object.keys(r.net.cells).length; }   // a flattened view
+              delete v.lazy; unpacking = null;
+              if (variant(mods()[moduleOf(state.path)]) === v) show();
+            })
             .catch((e) => { unpacking = null; canvas.textContent = String(e); });
         }
       }

@@ -51,11 +51,11 @@ def test_candidates_build_and_report(proj):
     la.shutdown()
 
 
-def _req(url, data=None, headers=None):
+def _req(url, data=None, headers=None, timeout=10):
     req = urllib.request.Request(url, data=json.dumps(data).encode() if data is not None else None,
                                  headers={"Content-Type": "application/json", **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read().decode()
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()
@@ -264,7 +264,7 @@ def test_big_schematics_drawn_on_demand(proj, monkeypatch):
     import re
 
     from veriview import html as vvhtml
-    monkeypatch.setattr(vvhtml, "LAZY_MIN_CELLS", 2)        # everything but the top and tiny modules
+    monkeypatch.setattr(vvhtml, "LAZY_MIN_CELLS", 2)        # rca counts as big: only the tops are drawn first
     server, la, url = serve(proj, 18860)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
@@ -280,13 +280,18 @@ def test_big_schematics_drawn_on_demand(proj, monkeypatch):
         lazy = {n: m["hier"]["lazy"] for n, m in mods.items() if "lazy" in m["hier"]}
         assert lazy and "rca" not in lazy and "svg" in mods["rca"]["hier"]      # the top is drawn right away
         name, idx = next(iter(lazy.items()))
-        code, svg = _req(url + f"api/svg/{bid}/{idx}")
-        assert code == 200 and svg.lstrip().startswith("<svg")
-        assert _req(url + f"api/svg/{bid}/99999")[0] == 404 and _req(url + "api/svg/nosuch/1")[0] == 404
+        code, body = _req(url + f"api/view/{bid}/{idx}", timeout=180)     # drawing takes a moment
+        assert code == 200 and json.loads(body)["svg"].lstrip().startswith("<svg")
+        # a flattened view: flattened on demand, its netlist comes along
+        fidx = mods["rca"]["flat"]["lazy"]
+        r = json.loads(_req(url + f"api/view/{bid}/{fidx}", timeout=180)[1])
+        assert r["svg"].lstrip().startswith("<svg") and len(r["net"]["cells"]) > 8      # no fa instances left
+        assert _req(url + f"api/view/{bid}/99999")[0] == 404 and _req(url + "api/view/nosuch/1")[0] == 404
         # the downloadable copy has every schematic in it
-        code, full = _req(url + f"view/{bid}?download=1")
+        code, full = _req(url + f"view/{bid}?download=1", timeout=600)
         mods = data_of(full)["views"]["opt"]["modules"]
         assert code == 200 and all("lazy" not in m["hier"] for m in mods.values())
+        assert mods["rca"]["flat"]["net"] and "lazy" not in mods["rca"]["flat"]
         assert all("svg" in m["hier"] or "svgz" in m["hier"] for m in mods.values())
     finally:
         server.shutdown()

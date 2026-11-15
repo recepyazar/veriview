@@ -15,6 +15,8 @@ import gzip
 import json
 import os
 import re
+import shutil
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -196,6 +198,55 @@ def placeholder_svg(kind: str, cells: int, detail: str = "") -> str:
             f'<desc>{_h.escape(detail[:2000])}</desc></svg>')
 
 
+def draw_view(jpath: Path, svg_path: Path, what: str, cells: int, skin: Path | None) -> str:
+    """One schematic (or a placeholder if it fails or takes too long)."""
+    t0 = time.monotonic()
+    try:
+        svg = run_netlistsvg(jpath, svg_path, skin, timeout=DRAW_TIMEOUT, fast=cells > FAST_LAYOUT_CELLS)
+    except DrawTimeout:
+        log.warn(f"Not drawn, layout took over {DRAW_TIMEOUT:.0f} s: {what}")
+        return placeholder_svg("slow", cells)
+    except VeriViewError as e:   # one schematic failing must not lose the whole viewer
+        log.warn(f"Could not draw {what}: {str(e).splitlines()[-1][:200]}")
+        return placeholder_svg("failed", cells, str(e))
+    dt = time.monotonic() - t0
+    if dt > 10:
+        log.info(f"Drawing {what} took {dt:.0f} s ({cells} cells)")
+    return strip_xml_decl(svg)
+
+
+# Launcher builds of big designs: schematics above this size are drawn when first opened
+LAZY_MIN_CELLS = 200
+_lazy_locks: dict[str, threading.Lock] = {}
+_lazy_guard = threading.Lock()
+
+
+def render_lazy(lazy_dir: Path, idx: int) -> str:
+    """Draw (once) a schematic left for later by build_viewer(lazy_dir=...)."""
+    done = lazy_dir / f"view{idx}.done.svg"
+    with _lazy_guard:
+        lock = _lazy_locks.setdefault(f"{lazy_dir}:{idx}", threading.Lock())
+    with lock:
+        if done.is_file():
+            return done.read_text(encoding="utf-8")
+        meta = json.loads((lazy_dir / f"view{idx}.meta.json").read_text(encoding="utf-8"))
+        skin = Path(meta["skin"]) if meta.get("skin") else None
+        svg = draw_view(lazy_dir / f"view{idx}.json", lazy_dir / f"view{idx}.svg", meta["what"], meta["cells"], skin)
+        done.write_text(svg, encoding="utf-8")
+        return svg
+
+
+def complete_viewer(lazy_dir: Path, out_html: Path) -> None:
+    """A self-contained copy of a lazily drawn viewer: every schematic drawn and embedded."""
+    data = json.loads((lazy_dir / "data.json").read_text(encoding="utf-8"))
+    for v in data["views"].values():
+        for e in v["modules"].values():
+            for k in ("hier", "flat"):
+                if k in e and "lazy" in e[k]:
+                    e[k]["svg"] = render_lazy(lazy_dir, e[k].pop("lazy"))
+    write_page(data, out_html, data.pop("_title", None))
+
+
 def _single_module(netlist: dict[str, Any], name: str, mod: dict[str, Any]) -> dict[str, Any]:
     mod = dict(mod)
     mod["attributes"] = {**mod.get("attributes", {}), "top": TOP_ATTR}
@@ -210,8 +261,11 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
                  yosys: str, skin: Path | None = None, title: str | None = None,
                  default_stage: str | None = None, default_flat: bool = False,
                  fsms: dict[str, Any] | Callable[[], dict[str, Any]] | None = None, lang: str = "auto",
-                 skipped: dict[str, str] | None = None) -> None:
-    """Write the viewer. `stage_netlists` maps stage name -> hierarchical Yosys JSON netlist."""
+                 skipped: dict[str, str] | None = None, lazy_dir: Path | None = None) -> None:
+    """Write the viewer. `stage_netlists` maps stage name -> hierarchical Yosys JSON netlist.
+
+    lazy_dir (launcher builds): schematics above LAZY_MIN_CELLS (except each stage's top) are not
+    drawn now; their netlists go to lazy_dir and render_lazy() draws them when first opened."""
     if not stage_netlists:
         raise ValueError("no netlists")
     stages = list(stage_netlists)
@@ -234,6 +288,17 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
     if too_big:
         log.info(f"{len(too_big)} view(s) too large to lay out are not drawn (above {MAX_DRAW_CELLS} cells, "
                  f"or flattened above {MAX_FLAT_CELLS}); their sub-modules are")
+    lazy: set[int] = set()
+    if lazy_dir is not None:
+        shutil.rmtree(lazy_dir, ignore_errors=True)
+        lazy_dir.mkdir(parents=True)
+        tops = {st: find_top(net["modules"]) for st, net in stage_netlists.items()}
+        for idx, (st, name, flat) in enumerate(jobs):
+            n = len(stage_netlists[st]["modules"][name].get("cells", {}))
+            if not flat and idx not in too_big and n > LAZY_MIN_CELLS and name != tops[st]:
+                lazy.add(idx)
+        if lazy:
+            log.info(f"{len(lazy)} bigger schematic(s) will be drawn when first opened")
 
     def run(idx: int) -> tuple[str, dict[str, Any]]:
         st, name, flat = jobs[idx]
@@ -250,23 +315,15 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
             mod = sub["modules"][root]
         else:
             single = _single_module(net, name, mod)
+        what, cells = f"{name}{' (flattened)' if flat else ''}", len(mod.get("cells", {}))
+        if idx in lazy:
+            (lazy_dir / f"view{idx}.json").write_text(json.dumps(single))
+            (lazy_dir / f"view{idx}.meta.json").write_text(json.dumps(
+                {"what": what, "cells": cells, "skin": str(skin.resolve()) if skin else None}))
+            return None, slim_netlist(mod)
         jpath = work_dir / f"view{idx}.json"
         jpath.write_text(json.dumps(single))
-        t0 = time.monotonic()
-        try:
-            svg = run_netlistsvg(jpath, work_dir / f"view{idx}.svg", skin, timeout=DRAW_TIMEOUT,
-                                 fast=len(mod.get("cells", {})) > FAST_LAYOUT_CELLS)
-        except DrawTimeout:
-            log.warn(f"Not drawn, layout took over {DRAW_TIMEOUT:.0f} s: {name}{' (flattened)' if flat else ''}")
-            return placeholder_svg("slow", len(mod.get("cells", {}))), slim_netlist(mod)
-        except VeriViewError as e:   # one schematic failing must not lose the whole viewer
-            log.warn(f"Could not draw {name}{' (flattened)' if flat else ''}: {str(e).splitlines()[-1][:200]}")
-            return placeholder_svg("failed", len(mod.get("cells", {})), str(e)), slim_netlist(mod)
-        dt = time.monotonic() - t0
-        if dt > 10:
-            what = f"{name}{' (flattened)' if flat else ''}"
-            log.info(f"Drawing {what} took {dt:.0f} s ({len(mod.get('cells', {}))} cells)")
-        return strip_xml_decl(svg), slim_netlist(mod)
+        return draw_view(jpath, work_dir / f"view{idx}.svg", what, cells, skin), slim_netlist(mod)
 
     log.info(f"Rendering {len(jobs)} view(s) for stage(s): {', '.join(stages)}...")
     workers = max(1, min(8, os.cpu_count() or 1, len(jobs)))
@@ -274,7 +331,7 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
         results = list(pool.map(run, range(len(jobs))))
 
     views: dict[str, Any] = {}
-    for (st, name, flat), (svg, slim) in zip(jobs, results):
+    for idx, ((st, name, flat), (svg, slim)) in enumerate(zip(jobs, results)):
         net = stage_netlists[st]
         mod = net["modules"][name]
         view = views.setdefault(st, {"top": find_top(net["modules"]), "modules": {}})
@@ -283,7 +340,8 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
             "src": mod.get("attributes", {}).get("src", ""),
             "children": user_children(net["modules"], name),
         })
-        entry["flat" if flat else "hier"] = {"svg": svg, "net": slim, "cells": len(slim["cells"])}
+        v = {"svg": svg} if svg is not None else {"lazy": idx}   # lazy: drawn by the launcher on demand
+        entry["flat" if flat else "hier"] = {**v, "net": slim, "cells": len(slim["cells"])}
 
     first = views[stages[0]]
     data = {
@@ -297,17 +355,25 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
         "skipped": skipped or {},   # stage -> why it is not in this viewer
         "views": views,
     }
+    top_label = first["modules"][first["top"]]["label"]
+    if lazy_dir is not None and lazy:   # kept for complete_viewer() (the downloadable, self-contained copy)
+        (lazy_dir / "data.json").write_text(json.dumps({**data, "_title": title or top_label}), encoding="utf-8")
+    write_page(data, out_html, title or top_label)
+
+
+def write_page(data: dict[str, Any], out_html: Path, title: str | None) -> None:
+    views = data["views"]
     # '<' only occurs inside JSON strings, so escaping it keeps </script> and
     # <!-- in SVG text from ending/confusing the inline <script>.
-    svg_bytes = sum(len(e[k]["svg"]) for v in views.values() for e in v["modules"].values() for k in ("hier", "flat")
-                    if k in e)
+    svg_bytes = sum(len(e[k].get("svg") or "") for v in views.values() for e in v["modules"].values()
+                    for k in ("hier", "flat") if k in e)
     if svg_bytes > GZIP_MIN:
         # each schematic compressed on its own and unpacked by the viewer when it is shown: the browser
         # never holds the whole design's SVG text at once (V8 strings stop at ~512 MB)
         for v in views.values():
             for e in v["modules"].values():
                 for k in ("hier", "flat"):
-                    if k in e and len(e[k]["svg"]) > 20000:
+                    if k in e and len(e[k].get("svg") or "") > 20000:
                         e[k]["svgz"] = base64.b64encode(gzip.compress(e[k].pop("svg").encode("utf-8"), 6)).decode()
     payload = json.dumps(data, separators=(",", ":")).replace("<", "\\u003c")
     if len(payload) > GZIP_MIN:   # SVG text compresses ~10x; the browser unpacks it (DecompressionStream)
@@ -315,8 +381,7 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
         log.info(f"Viewer data compressed: {len(payload) / 1e6:.0f} MB -> {len(packed) / 1e6:.0f} MB")
         payload = json.dumps({"gz": packed})
     page = TEMPLATE.read_text(encoding="utf-8")
-    top_label = first["modules"][first["top"]]["label"]
-    page = page.replace(TITLE_PLACEHOLDER, _html_escape(title or top_label))
+    page = page.replace(TITLE_PLACEHOLDER, _html_escape(title or "VeriView"))
     page = page.replace(SIM_PLACEHOLDER, SIM_JS.read_text(encoding="utf-8").replace("</", "<\\/"), 1)
     page = page.replace(TIMING_PLACEHOLDER, TIMING_JS.read_text(encoding="utf-8").replace("</", "<\\/"), 1)
     page = page.replace(DATA_PLACEHOLDER, payload)

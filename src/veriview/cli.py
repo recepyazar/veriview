@@ -97,6 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="skip the gate view of the HTML viewer when the optimized design has more cells than this "
                         "(gate-level synthesis of big designs needs many GB of memory and long; default 25000, "
                         "0 = no limit; ignored with --stage gate)")
+    p.add_argument("--lazy-dir", type=Path, help=argparse.SUPPRESS)   # launcher: draw big views on demand
     p.add_argument("--frontend", choices=FRONTENDS, default="auto",
                    help="SystemVerilog frontend (default: auto = yosys, falling back to slang/sv2v)")
     p.add_argument("--skin", type=Path, help="custom netlistsvg skin")
@@ -244,7 +245,7 @@ def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, w
         fsm_job = pool.submit(fsms_found)
         build_viewer(stage_netlists, out, work, yosys=synth.yosys, skin=args.skin,
                      default_stage=args.stage, default_flat=args.flatten, fsms=fsm_job.result, lang=args.lang,
-                     skipped=skipped)
+                     skipped=skipped, lazy_dir=args.lazy_dir)
     if args.keep_json:
         for st in stage_netlists:
             shutil.copyfile(work / f"netlist_{st}.json", out.with_name(f"{out.stem}.{st}.json"))

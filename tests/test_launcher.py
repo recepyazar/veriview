@@ -255,3 +255,40 @@ def test_generated_pages_have_valid_scripts(proj, tmp_path):
             f.write_text(js.replace("/*__EDITOR_DATA__*/null", "null"))
             r = subprocess.run([shutil.which("node"), "--check", str(f)], capture_output=True, text=True)
             assert r.returncode == 0, f"{name} script {i}: {r.stderr}"
+
+
+@needs_tools
+def test_big_schematics_drawn_on_demand(proj, monkeypatch):
+    import base64
+    import gzip
+    import re
+
+    from veriview import html as vvhtml
+    monkeypatch.setattr(vvhtml, "LAZY_MIN_CELLS", 2)        # everything but the top and tiny modules
+    server, la, url = serve(proj, 18860)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+
+    def data_of(page):
+        d = json.loads(re.search(r"const DATA = (.*?);\n", page).group(1))
+        return json.loads(gzip.decompress(base64.b64decode(d["gz"]))) if "gz" in d else d
+    try:
+        code, body = _view(url, "view?f=rca/rca.f")
+        assert code == 200
+        bid = re.search(r'"build": "(\w+)"', body).group(1)
+        mods = data_of(body)["views"]["opt"]["modules"]
+        lazy = {n: m["hier"]["lazy"] for n, m in mods.items() if "lazy" in m["hier"]}
+        assert lazy and "rca" not in lazy and "svg" in mods["rca"]["hier"]      # the top is drawn right away
+        name, idx = next(iter(lazy.items()))
+        code, svg = _req(url + f"api/svg/{bid}/{idx}")
+        assert code == 200 and svg.lstrip().startswith("<svg")
+        assert _req(url + f"api/svg/{bid}/99999")[0] == 404 and _req(url + "api/svg/nosuch/1")[0] == 404
+        # the downloadable copy has every schematic in it
+        code, full = _req(url + f"view/{bid}?download=1")
+        mods = data_of(full)["views"]["opt"]["modules"]
+        assert code == 200 and all("lazy" not in m["hier"] for m in mods.values())
+        assert all("svg" in m["hier"] or "svgz" in m["hier"] for m in mods.values())
+    finally:
+        server.shutdown()
+        server.server_close()
+        la.shutdown()

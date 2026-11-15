@@ -181,7 +181,10 @@ class Launcher:
         extra = ["--html-stages", ",".join(stages), "--stage", stages[0], "--lang", "auto", "--no-open"]
         if req.get("flatten"):
             extra.append("--flatten")
-        b = Build(uuid.uuid4().hex[:10], self.argv_for(req, *extra), live=True)
+        bid = uuid.uuid4().hex[:10]
+        b = Build(bid, [], live=True)
+        # big schematics are drawn when first opened (GET /api/svg/<build>/<view>)
+        b.argv = self.argv_for(req, *extra, "--lazy-dir", str(b.dir / "lazy"))
         b.req = req
         self.builds[b.id] = b
         self.by_key[key] = b.id
@@ -515,6 +518,14 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
                 if not b or not b.html.is_file():
                     return self._send(404, "text/plain", b"no such viewer")
                 return self._viewer(b, query)
+            if path.startswith("/api/svg/"):   # a schematic left for later (html.render_lazy)
+                parts = path[len("/api/svg/"):].split("/")
+                b = launcher.builds.get(parts[0]) if len(parts) == 2 else None
+                if not b or not parts[1].isdigit() or not (b.dir / "lazy" / f"view{parts[1]}.meta.json").is_file():
+                    return self._send(404, "text/plain", b"no such view")
+                from .html import render_lazy
+                return self._send(200, "image/svg+xml; charset=utf-8",
+                                  render_lazy(b.dir / "lazy", int(parts[1])).encode("utf-8"))
             if path.startswith("/api/status/"):
                 try:
                     return self._json(launcher.status(path[len("/api/status/"):]))
@@ -523,6 +534,13 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
             self._send(404, "text/plain", b"not found")
 
         def _viewer(self, b: Build, query: str) -> None:
+            if "download=1" in query and (b.dir / "lazy" / "data.json").is_file():
+                # every schematic drawn and embedded: the file works without VeriView
+                from .html import complete_viewer
+                full = b.dir / "complete.html"
+                complete_viewer(b.dir / "lazy", full)
+                return self._send(200, "text/html; charset=utf-8", full.read_bytes(),
+                                  {"Content-Disposition": f'attachment; filename="{b.name}.html"'})
             html = b.html.read_text(encoding="utf-8")
             if "download=1" in query:
                 return self._send(200, "text/html; charset=utf-8", html.encode("utf-8"),

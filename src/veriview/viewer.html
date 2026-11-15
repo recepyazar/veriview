@@ -489,7 +489,9 @@ VV_DATA.then((DATA) => {
     "⇄ Draw as gates in the editor": "⇄ Editörde kapı çizimi olarak aç", "⤓ Schematic as SVG": "⤓ Şemayı SVG olarak indir",
     "⤓ Viewer as HTML": "⤓ Görüntüleyiciyi HTML olarak indir",
     "Save this viewer as a single HTML file (works without VeriView)": "Bu görüntüleyiciyi tek bir HTML dosyası olarak kaydet (VeriView olmadan çalışır)",
-    "◐ Light / dark": "◐ Açık / koyu", "Loading the schematic…": "Şema yükleniyor…", "Not built: {why}": "Oluşturulmadı: {why}",
+    "◐ Light / dark": "◐ Açık / koyu", "Drawing the schematic ({n} cells)…": "Şema çiziliyor ({n} hücre)…",
+    "This schematic is drawn by VeriView when it is opened: open the design from the start page (veriview --ui), or download the viewer from there.":
+      "Bu şema açıldığında VeriView tarafından çizilir: tasarımı başlangıç sayfasından aç (veriview --ui) ya da görüntüleyiciyi oradan indir.", "Loading the schematic…": "Şema yükleniyor…", "Not built: {why}": "Oluşturulmadı: {why}",
     "Preparing the simulation of {n} cells…": "{n} hücrelik simülasyon hazırlanıyor…",
     "Too large to draw: {n} cells.": "Çizilemeyecek kadar büyük: {n} hücre.",
     "This schematic could not be drawn ({n} cells).": "Bu şema çizilemedi ({n} hücre).",
@@ -1762,6 +1764,21 @@ VV_DATA.then((DATA) => {
   let unpacking = null;
   const show = () => {
     const name = moduleOf(state.path), mod = mods()[name], v = variant(mod);
+    if (v.svg === undefined && v.lazy !== undefined) {   // a big schematic: the launcher draws it on demand
+      const srv = window.VERIVIEW_SERVER;
+      if (!srv) {
+        canvas.innerHTML = `<p style="padding:20px;color:var(--muted)">${escapeHtml(_t("This schematic is drawn by VeriView when it is opened: open the design from the start page (veriview --ui), or download the viewer from there."))}</p>`;
+      } else {
+        canvas.innerHTML = `<p style="padding:20px;color:var(--muted)">${escapeHtml(_t("Drawing the schematic ({n} cells)…", { n: v.cells }))}</p>`;
+        if (unpacking !== v) {
+          unpacking = v;
+          fetch(`/api/svg/${srv.build}/${v.lazy}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.statusText))))
+            .then((t) => { v.svg = t; delete v.lazy; unpacking = null; if (variant(mods()[moduleOf(state.path)]) === v) show(); })
+            .catch((e) => { unpacking = null; canvas.textContent = String(e); });
+        }
+      }
+      return;
+    }
     if (v.svg === undefined && v.svgz) {
       canvas.innerHTML = `<p style="padding:20px;color:var(--muted)">${escapeHtml(_t("Loading the schematic…"))}</p>`;
       if (unpacking !== v) {

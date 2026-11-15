@@ -489,7 +489,7 @@ VV_DATA.then((DATA) => {
     "⇄ Draw as gates in the editor": "⇄ Editörde kapı çizimi olarak aç", "⤓ Schematic as SVG": "⤓ Şemayı SVG olarak indir",
     "⤓ Viewer as HTML": "⤓ Görüntüleyiciyi HTML olarak indir",
     "Save this viewer as a single HTML file (works without VeriView)": "Bu görüntüleyiciyi tek bir HTML dosyası olarak kaydet (VeriView olmadan çalışır)",
-    "◐ Light / dark": "◐ Açık / koyu",
+    "◐ Light / dark": "◐ Açık / koyu", "Loading the schematic…": "Şema yükleniyor…", "Not built: {why}": "Oluşturulmadı: {why}",
     "Preparing the simulation of {n} cells…": "{n} hücrelik simülasyon hazırlanıyor…",
     "Too large to draw: {n} cells.": "Çizilemeyecek kadar büyük: {n} hücre.",
     "This schematic could not be drawn ({n} cells).": "Bu şema çizilemedi ({n} hücre).",
@@ -1754,8 +1754,23 @@ VV_DATA.then((DATA) => {
   // flattened views are not simulated (simulation runs on the hierarchy); timing always flattens
   const isFlat = (mod) => !!((state.flat || state.timing) && mod.flat && !state.sim);
   const variant = (mod) => (isFlat(mod) ? mod.flat : mod.hier);
+  // big designs: each schematic is stored gzip-compressed (svgz) and unpacked when first shown
+  const unzipText = async (b64) => {
+    const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    return new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+  };
+  let unpacking = null;
   const show = () => {
     const name = moduleOf(state.path), mod = mods()[name], v = variant(mod);
+    if (v.svg === undefined && v.svgz) {
+      canvas.innerHTML = `<p style="padding:20px;color:var(--muted)">${escapeHtml(_t("Loading the schematic…"))}</p>`;
+      if (unpacking !== v) {
+        unpacking = v;
+        unzipText(v.svgz).then((t) => { v.svg = t; delete v.svgz; unpacking = null; show(); })
+          .catch((e) => { unpacking = null; canvas.textContent = String(e); });
+      }
+      return;
+    }
     canvas.innerHTML = v.svg;
     for (const t of canvas.querySelectorAll("text[data-i18n]")) t.textContent = _t(t.dataset.i18n, { n: t.dataset.n });   // "too large" notes
     svg = canvas.querySelector("svg");
@@ -1859,7 +1874,8 @@ VV_DATA.then((DATA) => {
     $("btn-code").disabled = !Object.keys(SOURCES).length;
     $("btn-timing").setAttribute("aria-pressed", String(state.timing));
     $("btn-timing").disabled = !DATA.views.gate;
-    if (!DATA.views.gate) $("btn-timing").title = _t("Timing needs the gate view (generate with --html-stages including gate)");
+    if (!DATA.views.gate) $("btn-timing").title = DATA.skipped && DATA.skipped.gate ? _t("Not built: {why}", { why: DATA.skipped.gate })
+      : _t("Timing needs the gate view (generate with --html-stages including gate)");
     $("btn-sim").setAttribute("aria-pressed", String(state.sim));
     $("sim-controls").hidden = !state.sim;
     $("sim-panel").hidden = !state.sim;
@@ -2018,7 +2034,14 @@ VV_DATA.then((DATA) => {
     b.onclick = () => { if (st !== state.stage) go({ stage: st, path: validPrefix(state.path, DATA.views[st]) }); };
     $("stages").append(b);
   }
-  if (DATA.stages.length < 2) $("stages").parentElement.style.display = "none";
+  for (const st of Object.keys(DATA.skipped || {})) {   // e.g. no gate view for a very big design
+    if (!STAGE_INFO[st] || DATA.stages.includes(st)) continue;
+    const b = document.createElement("button");
+    b.className = "btn"; b.disabled = true; b.textContent = STAGE_INFO[st][0];
+    b.title = _t("Not built: {why}", { why: DATA.skipped[st] });
+    $("stages").append(b);
+  }
+  if (DATA.stages.length < 2 && !Object.keys(DATA.skipped || {}).length) $("stages").parentElement.style.display = "none";
   $("btn-flat").onclick = () => go({ flat: !state.flat });
   // big designs: say what is happening before the browser is busy building the simulator
   const totalCells = () => Object.values(mods()).reduce((n, m) => n + ((m.hier && m.hier.cells) || 0), 0);

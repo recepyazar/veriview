@@ -110,3 +110,54 @@ def test_huge_views_are_skipped_not_fatal(tmp_path, monkeypatch):
     assert main(["-q", str(EX / "rca" / "rca.f"), "--html", "--html-stages", "opt", "-o", str(out)]) == 0
     mods = json.loads(re.search(r"const DATA = (.*?);\n", out.read_text()).group(1))["views"]["opt"]["modules"]
     assert "could not be drawn" in mods["ha"]["hier"]["svg"] and "vv-placeholder" not in mods["rca"]["hier"]["svg"]
+
+
+@needs_tools
+def test_gate_view_skipped_above_the_limit(tmp_path):
+    import re
+
+    from veriview.cli import main
+    out = tmp_path / "v.html"
+    assert main(["-q", str(EX / "rca" / "rca.f"), "--html", "--gate-limit", "5", "-o", str(out)]) == 0
+    data = json.loads(re.search(r"const DATA = (.*?);\n", out.read_text()).group(1))
+    assert data["stages"] == ["elab", "opt"] and "gate view skipped" in data["skipped"]["gate"]
+    # asked for explicitly: built anyway
+    rca = str(EX / "rca" / "rca.f")
+    assert main(["-q", rca, "--html", "--stage", "gate", "--gate-limit", "5", "-o", str(out)]) == 0
+    data = json.loads(re.search(r"const DATA = (.*?);\n", out.read_text()).group(1))
+    assert "gate" in data["stages"] and not data["skipped"]
+
+
+@needs_tools
+def test_big_viewers_store_each_schematic_compressed(tmp_path, monkeypatch):
+    import base64
+    import gzip
+    import re
+
+    from veriview.cli import main
+    monkeypatch.setattr(vvhtml, "GZIP_MIN", 1000)
+    out = tmp_path / "v.html"
+    assert main(["-q", str(EX / "rca" / "rca.f"), "--html", "--html-stages", "opt", "-o", str(out)]) == 0
+    packed = json.loads(re.search(r"const DATA = (.*?);\n", out.read_text()).group(1))
+    data = json.loads(gzip.decompress(base64.b64decode(packed["gz"])))
+    top = data["views"]["opt"]["modules"]["rca"]["hier"]
+    assert "svg" not in top and gzip.decompress(base64.b64decode(top["svgz"])).decode().lstrip().startswith("<svg")
+    assert "svg" in data["views"]["opt"]["modules"]["ha"]["hier"]          # small ones stay as they are
+
+
+@needs_tools
+@pytest.mark.skipif(not NODE, reason="needs node")
+def test_viewer_page_scripts_parse_as_embedded(tmp_path):
+    """sim.js and timing.js share one <script> in the viewer: top-level names must not clash."""
+    import re
+
+    from veriview.cli import main
+    out = tmp_path / "v.html"
+    assert main(["-q", str(EX / "counter.sv"), "--html", "--html-stages", "opt", "-o", str(out)]) == 0
+    scripts = re.findall(r"<script>(.*?)</script>", out.read_text(), re.S)
+    assert scripts
+    # all inline scripts run in one global scope: check them together, in page order
+    js = tmp_path / "all.js"
+    js.write_text("\n;\n".join(scripts))
+    r = subprocess.run([NODE, "--check", str(js)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr

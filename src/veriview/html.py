@@ -209,7 +209,8 @@ def strip_xml_decl(svg: str) -> str:
 def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work_dir: Path, *,
                  yosys: str, skin: Path | None = None, title: str | None = None,
                  default_stage: str | None = None, default_flat: bool = False,
-                 fsms: dict[str, Any] | Callable[[], dict[str, Any]] | None = None, lang: str = "auto") -> None:
+                 fsms: dict[str, Any] | Callable[[], dict[str, Any]] | None = None, lang: str = "auto",
+                 skipped: dict[str, str] | None = None) -> None:
     """Write the viewer. `stage_netlists` maps stage name -> hierarchical Yosys JSON netlist."""
     if not stage_netlists:
         raise ValueError("no netlists")
@@ -293,10 +294,21 @@ def build_viewer(stage_netlists: dict[str, dict[str, Any]], out_html: Path, work
         "sources": collect_sources(stage_netlists, [Path.cwd(), work_dir]),
         "fsms": (fsms() if callable(fsms) else fsms) or {},
         "lang": lang,
+        "skipped": skipped or {},   # stage -> why it is not in this viewer
         "views": views,
     }
     # '<' only occurs inside JSON strings, so escaping it keeps </script> and
     # <!-- in SVG text from ending/confusing the inline <script>.
+    svg_bytes = sum(len(e[k]["svg"]) for v in views.values() for e in v["modules"].values() for k in ("hier", "flat")
+                    if k in e)
+    if svg_bytes > GZIP_MIN:
+        # each schematic compressed on its own and unpacked by the viewer when it is shown: the browser
+        # never holds the whole design's SVG text at once (V8 strings stop at ~512 MB)
+        for v in views.values():
+            for e in v["modules"].values():
+                for k in ("hier", "flat"):
+                    if k in e and len(e[k]["svg"]) > 20000:
+                        e[k]["svgz"] = base64.b64encode(gzip.compress(e[k].pop("svg").encode("utf-8"), 6)).decode()
     payload = json.dumps(data, separators=(",", ":")).replace("<", "\\u003c")
     if len(payload) > GZIP_MIN:   # SVG text compresses ~10x; the browser unpacks it (DecompressionStream)
         packed = base64.b64encode(gzip.compress(payload.encode("utf-8"), 6)).decode("ascii")

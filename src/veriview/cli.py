@@ -93,6 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="viewer language (default: the browser's language; Türkçe: tr)")
     p.add_argument("--html-stages", default=",".join(STAGES), metavar="LIST",
                    help="stages embedded in the HTML viewer (default: elab,opt,gate; --stage is shown first)")
+    p.add_argument("--gate-limit", type=int, default=25000, metavar="CELLS",
+                   help="skip the gate view of the HTML viewer when the optimized design has more cells than this "
+                        "(gate-level synthesis of big designs needs many GB of memory and long; default 25000, "
+                        "0 = no limit; ignored with --stage gate)")
     p.add_argument("--frontend", choices=FRONTENDS, default="auto",
                    help="SystemVerilog frontend (default: auto = yosys, falling back to slang/sv2v)")
     p.add_argument("--skin", type=Path, help="custom netlistsvg skin")
@@ -191,8 +195,19 @@ def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, w
     stage_netlists = {}
     stem = None
     renamed: dict[str, str] = {}
+    skipped: dict[str, str] = {}
     for st in stages:
         json_path = work / f"netlist_{st}.json"
+        if st == "gate" and args.stage != "gate" and args.gate_limit and stage_netlists:
+            prev = stage_netlists.get("opt") or next(iter(stage_netlists.values()))
+            n = sum(len(m.get("cells", {})) for m in prev["modules"].values())
+            if n > args.gate_limit:
+                why = (f"gate view skipped: {n} cells in the optimized design (limit {args.gate_limit}); gate-level "
+                       "synthesis of a design this big needs many GB of memory and a long time. Use a smaller top "
+                       "module, or --gate-limit 0 to build it anyway")
+                log.warn(why[0].upper() + why[1:])
+                skipped["gate"] = why
+                continue
         log.info(f"Running synthesis ({st})...")
         synth.synthesize(args.top, json_path, stage=st)
         netlist = json.loads(json_path.read_text(encoding="utf-8"))
@@ -228,7 +243,8 @@ def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, w
     with ThreadPoolExecutor(max_workers=1) as pool:
         fsm_job = pool.submit(fsms_found)
         build_viewer(stage_netlists, out, work, yosys=synth.yosys, skin=args.skin,
-                     default_stage=args.stage, default_flat=args.flatten, fsms=fsm_job.result, lang=args.lang)
+                     default_stage=args.stage, default_flat=args.flatten, fsms=fsm_job.result, lang=args.lang,
+                     skipped=skipped)
     if args.keep_json:
         for st in stage_netlists:
             shutil.copyfile(work / f"netlist_{st}.json", out.with_name(f"{out.stem}.{st}.json"))

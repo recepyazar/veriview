@@ -62,7 +62,7 @@ const memParam = (cell, k) => String((cell[2] && cell[2][k]) || "");
 // a memory macro: are all its read ports clocked (then it acts like a register bank)?
 const memClocked = (cell) => !/0/.test(memParam(cell, "RD_CLK_ENABLE").replace(/[xz]/g, "0") || "0");
 const memDataPins = (cell) => ["WR_ADDR", "WR_DATA", "WR_EN", ...(memClocked(cell) ? ["RD_ADDR", "RD_EN", "RD_SRST"] : [])];
-const pInt = (cell, k) => { const v = memParam(cell, k); return /^[01]+$/.test(v) ? parseInt(v, 2) : Number(v) || 0; };
+const memInt = (cell, k) => { const v = memParam(cell, k); return /^[01]+$/.test(v) ? parseInt(v, 2) : Number(v) || 0; };
 
 // "2ns", "500 ps", "250MHz", "1.5" (ns) -> picoseconds
 function parseTime(text, defaultUnit = "ns") {
@@ -107,7 +107,7 @@ function analyzeTiming(net, options = {}) {
       const m = lib.mem || GENERIC_LIB.mem;
       kind.set(name, memClocked(cell) ? "ff" : "comb");
       delay.set(name, m.access + m.k * fo);
-      area += pInt(cell, "SIZE") * pInt(cell, "WIDTH") * m.areaPerBit;
+      area += memInt(cell, "SIZE") * memInt(cell, "WIDTH") * m.areaPerBit;
     } else if (lib.cells[type]) {
       kind.set(name, "comb");
       delay.set(name, lib.cells[type].d + lib.cells[type].k * fo);

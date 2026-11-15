@@ -193,58 +193,72 @@ def _report_top(args: argparse.Namespace, synth: Synthesizer, chosen: str) -> No
 
 def _run_html(args: argparse.Namespace, inputs: list[str], synth: Synthesizer, work: Path,
               stages: list[str]) -> Path:
+    from concurrent.futures import ThreadPoolExecutor
     stage_netlists = {}
     stem = None
     renamed: dict[str, str] = {}
     skipped: dict[str, str] = {}
-    for st in stages:
+
+    def synth_stage(st: str) -> dict:
+        log.info(f"Running synthesis ({st})...")
         json_path = work / f"netlist_{st}.json"
-        if st == "gate" and args.stage != "gate" and args.gate_limit and stage_netlists:
-            prev = stage_netlists.get("opt") or next(iter(stage_netlists.values()))
+        synth.synthesize(args.top, json_path, stage=st)
+        return json.loads(json_path.read_text(encoding="utf-8"))
+
+    # The first stage settles the frontend (and black boxes, unroll limits ...); then the other views
+    # and the FSM extraction are independent Yosys runs: side by side (big designs: minutes each).
+    # The gate view comes last: whether to build it depends on the size of the optimized design.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        raw: dict[str, dict] = {stages[0]: synth_stage(stages[0])}
+        _report_top(args, synth, find_top(raw[stages[0]]["modules"]))
+        fsm_job = pool.submit(_extract_fsms, args, synth, work)
+        others = [st for st in stages[1:] if st != "gate"]
+        jobs = {st: pool.submit(synth_stage, st) for st in others}
+        for st in others:
+            raw[st] = jobs[st].result()
+        if "gate" in stages[1:]:
+            prev = raw.get("opt") or raw[stages[0]]
             n = sum(len(m.get("cells", {})) for m in prev["modules"].values())
-            if n > args.gate_limit:
+            if args.stage != "gate" and args.gate_limit and n > args.gate_limit:
                 why = (f"gate view skipped: {n} cells in the optimized design (limit {args.gate_limit}); gate-level "
                        "synthesis of a design this big needs many GB of memory and a long time. Use a smaller top "
                        "module, or --gate-limit 0 to build it anyway")
                 log.warn(why[0].upper() + why[1:])
                 skipped["gate"] = why
-                continue
-        log.info(f"Running synthesis ({st})...")
-        synth.synthesize(args.top, json_path, stage=st)
-        netlist = json.loads(json_path.read_text(encoding="utf-8"))
-        root = find_top(netlist["modules"])
-        if st == stages[0]:
-            _report_top(args, synth, root)
-        if args.select:
-            try:
-                root, insts = resolve_instance(netlist["modules"], root, args.select)
-            except VeriViewError as e:
-                if st == args.stage:
-                    raise
-                log.warn(f"Stage '{st}' skipped: {e}")
-                continue
-            stem = re.sub(r"[^\w.-]+", "_", insts[-1])
-        orig_root = root
-        netlist, root = reroot(netlist, root)
-        renamed[orig_root] = root
-        stage_netlists[st] = netlist
-        if args.keep_json:
-            json_path.write_text(json.dumps(netlist), encoding="utf-8")
+            else:
+                raw["gate"] = synth_stage("gate")
 
-    out = _output_path(args, inputs, ".html", stem)
+        for st in stages:
+            if st not in raw:
+                continue
+            netlist = raw[st]
+            root = find_top(netlist["modules"])
+            if args.select:
+                try:
+                    root, insts = resolve_instance(netlist["modules"], root, args.select)
+                except VeriViewError as e:
+                    if st == args.stage:
+                        raise
+                    log.warn(f"Stage '{st}' skipped: {e}")
+                    continue
+                stem = re.sub(r"[^\w.-]+", "_", insts[-1])
+            orig_root = root
+            netlist, root = reroot(netlist, root)
+            renamed[orig_root] = root
+            stage_netlists[st] = netlist
+            if args.keep_json:
+                (work / f"netlist_{st}.json").write_text(json.dumps(netlist), encoding="utf-8")
 
-    def fsms_found() -> dict:
-        fsms = _extract_fsms(args, synth, work)
-        for old, new in renamed.items():  # --select renames a parameterized root module
-            if old in fsms and old != new:
-                fsms[new] = fsms.pop(old)
-        return fsms
-    # FSM extraction (another Yosys run) and drawing the schematics are independent: run them side by side
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        fsm_job = pool.submit(fsms_found)
+        out = _output_path(args, inputs, ".html", stem)
+
+        def fsms_found() -> dict:
+            fsms = fsm_job.result()
+            for old, new in renamed.items():  # --select renames a parameterized root module
+                if old in fsms and old != new:
+                    fsms[new] = fsms.pop(old)
+            return fsms
         build_viewer(stage_netlists, out, work, yosys=synth.yosys, skin=args.skin,
-                     default_stage=args.stage, default_flat=args.flatten, fsms=fsm_job.result, lang=args.lang,
+                     default_stage=args.stage, default_flat=args.flatten, fsms=fsms_found, lang=args.lang,
                      skipped=skipped, lazy_dir=args.lazy_dir)
     if args.keep_json:
         for st in stage_netlists:

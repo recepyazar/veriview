@@ -304,7 +304,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "The current drawing has unsaved changes. Discard them?": "Bu çizimde kaydedilmemiş değişiklikler var. Silinsin mi?",
     "The last drawing ({f}) has unsaved changes. Discard them?": "Son çizimde ({f}) kaydedilmemiş değişiklikler var. Silinsin mi?",
     "Unsaved changes restored.": "Kaydedilmemiş değişiklikler geri yüklendi.",
-    "{m}: {n} gates and flip-flops — Save keeps it as a new file": "{m}: {n} kapı ve flip-flop — Kaydet ile yeni bir dosya olarak saklanır",
+    "{m}: {n} blocks and gates — Save keeps it as a new file": "{m}: {n} blok ve kapı — Kaydet ile yeni bir dosya olarak saklanır",
     "Modules": "Modüller", "+ Module block…": "+ Modül bloğu…", "Cancel": "Vazgeç",
     "Use a Verilog module of the folder (a drawn design too) as a block": "Klasördeki bir Verilog modülünü (çizilmiş bir tasarımı da) blok olarak kullan",
     "Search modules…": "Modül ara…", "Looking for modules…": "Modüller aranıyor…", "No module matches.": "Eşleşen modül yok.",
@@ -662,7 +662,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       box.append(l, i);
     };
     if (!viaWire && nd.type !== "tag" && nd.type !== "const0" && nd.type !== "const1" && nd.type !== "inst") {
-      const auto = VVEditor.AUTO.has(nd.type), lim = nd.type === "dec" ? 5 : nd.type === "split" || nd.type === "merge" ? 32 : 64;
+      const auto = VVEditor.AUTO.has(nd.type), lim = nd.type === "dec" ? 5 : 64;
       numField(nd.type === "dec" ? _t("Input bits (outputs: 2^bits)") : _t("Bits (width)"), nd.bits !== undefined ? nd.bits : auto ? undefined : VVEditor.defaultBits(nd),
         auto ? _t("automatic") + `: ${widthOf(nd)}` : "", nd.type === "split" || nd.type === "merge" ? 2 : 1, lim,
         (v) => { if (v === undefined && !auto) return; if (v === undefined) delete nd.bits; else nd.bits = v; });
@@ -1152,12 +1152,13 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       else {
         const m = qs.get("module") || "";
         $("status").textContent = _t("Converting {m} to gates…", { m });
-        const r = await api("/api/to_editor", qs.get("build") ? { id: qs.get("build"), module: m } : { files: qs.getAll("f"), module: m });
+        const mode = qs.get("mode") || "";
+        const r = await api("/api/to_editor", qs.get("build") ? { id: qs.get("build"), module: m, mode } : { files: qs.getAll("f"), module: m, mode });
         if (r.error) { alert(r.error); history.back(); return; }
         setDesign({ ...r, module: r.module }); FILE = VFILE = null; savedSnap = null;
         const gates = r.nodes.filter((n) => !PORTS.includes(n.type)).length;
         const notes = (r.warn || []).map((w) => { const x = /^ports wider than (\d+) bits split into one port per bit: (.*)$/.exec(w); return x ? _t("ports wider than {n} bits split into one port per bit: {p}", { n: x[1], p: x[2] }) : w; });
-        setTimeout(() => { $("status").textContent = [_t("{m}: {n} gates and flip-flops — Save keeps it as a new file", { m: r.module, n: gates }), ...notes].join(" · "); clearTimeout(flash.t); flash.t = setTimeout(generate, 6000); });
+        setTimeout(() => { $("status").textContent = [_t("{m}: {n} blocks and gates — Save keeps it as a new file", { m: r.module, n: gates }), ...notes].join(" · "); clearTimeout(flash.t); flash.t = setTimeout(generate, 6000); });
       }
     } else if (draft && draft.nodes) useDraft();
     else { setDesign(STARTER); savedSnap = null; }

@@ -16,7 +16,7 @@
  *           reg (D, CLK, EN, RST_N -> Q), cnt (CLK, EN, RST_N -> Q = Q + 1), dec (A -> Y = one-hot, 2^bits),
  *           muxn (D0..D{k-1}, S -> Y), split (A -> B0..B{bits-1}), merge (B0..B{bits-1} -> Y; B0 = LSB)
  *   EN, RST_N and CIN of blocks may stay unconnected (EN = 1, no reset, CIN = 0).
- *   inst: an instance of a Verilog module of the project {module, file, ports: [{name, dir, bits}]};
+ *   inst: an instance of a Verilog module of the project {module, file, ports: [{name, dir, bits}], params?};
  *         label = instance name. Not simulated by the editor (its contents are not drawn).
  */
 const GATE2 = ["and", "or", "nand", "nor", "xor", "xnor"];
@@ -58,8 +58,8 @@ function pinsOf(nd) {
       return { ins: ps.filter((p) => p.dir !== "output").map((p) => p.name), outs: ps.filter((p) => p.dir === "output").map((p) => p.name) };
     }
     case "muxn": return { ins: [...range(clampBits(nd.k || 4, 2, 16)).map((i) => "D" + i), "S"], outs: ["Y"] };
-    case "split": return { ins: ["A"], outs: range(clampBits(n, 2, 32)).map((i) => "B" + i) };
-    case "merge": return { ins: range(clampBits(n, 2, 32)).map((i) => "B" + i), outs: ["Y"] };
+    case "split": return { ins: ["A"], outs: range(clampBits(n, 2, 64)).map((i) => "B" + i) };
+    case "merge": return { ins: range(clampBits(n, 2, 64)).map((i) => "B" + i), outs: ["Y"] };
     default: return { ins: ["A", "B", "C", "D"].slice(0, nd.n || 2), outs: ["Y"] };
   }
 }
@@ -277,7 +277,8 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
   for (const g of insts) {   // module instances: one named connection per port
     const ports = g.ports || [];
     const conn = ports.map((p) => `    .${ident(p.name)}(${p.dir === "output" ? net(g, p.name) : drv(g, p.name)})`);
-    L.push("", `  ${ident(g.module)} ${base(g)} (`, conn.join(",\n"), "  );");
+    const params = Object.entries(g.params || {}).filter(([k]) => isId(k)).map(([k, v]) => `.${k}(${v})`);
+    L.push("", `  ${ident(g.module)} ${params.length ? `#(${params.join(", ")}) ` : ""}${base(g)} (`, conn.join(",\n"), "  );");
   }
   if (outs.length) L.push("");
   for (const o of outs) L.push(`  assign ${ident(o.name)} = ${drv(o, "A")};`);

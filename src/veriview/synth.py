@@ -101,6 +101,9 @@ def stage_commands(stage: str, flatten: bool) -> list[str]:
     if stage == "editor":  # internal: gate-editor primitives ("open in editor", see to_editor.py)
         from .to_editor import editor_commands
         return editor_commands()
+    if stage == "editor-blocks":  # internal: the editor's blocks + gates for the rest (to_editor.py)
+        from .to_editor import blocks_commands
+        return blocks_commands()
     cmds = ["proc"]
     if flatten:
         cmds.append("flatten")

@@ -256,7 +256,8 @@
     <div class="menu">
       <button class="btn" id="btn-more" title="More" aria-haspopup="true">⋯</button>
       <div class="menu-pop" id="more" hidden>
-        <button class="btn" id="btn-editor" title="Open this module in the gate editor (as gates and flip-flops)">⇄ Draw as gates in the editor</button>
+        <button class="btn" id="btn-editor" title="Open this module in the gate editor with blocks (adders, comparators, registers, MUX); sub-modules stay module blocks">⇄ Open in the editor</button>
+        <button class="btn" id="btn-editor-gates" title="Open this module in the gate editor as gates and flip-flops only (flattened)">⇄ Open in the editor as gates</button>
         <button class="btn" id="btn-svg" title="Download this schematic as SVG">⤓ Schematic as SVG</button>
         <button class="btn" id="btn-html" title="Save this viewer as a single HTML file (works without VeriView)">⤓ Viewer as HTML</button>
         <button class="btn" id="btn-lang" title="Language / Dil">Türkçe</button>
@@ -486,7 +487,10 @@ VV_DATA.then((DATA) => {
     "Change the design": "Tasarımı değiştir", "Change the drawing in the gate editor": "Çizimi kapı editöründe değiştir",
     "Edit the source code (the code panel opens; Ctrl+S saves and rebuilds)": "Kaynak kodu düzenle (kod paneli açılır; Ctrl+S kaydeder ve yeniden üretir)",
     "Start page: all designs of the folder": "Başlangıç sayfası: klasördeki tüm tasarımlar", "More": "Diğer",
-    "⇄ Draw as gates in the editor": "⇄ Editörde kapı çizimi olarak aç", "⤓ Schematic as SVG": "⤓ Şemayı SVG olarak indir",
+    "⇄ Open in the editor": "⇄ Editörde aç", "⇄ Open in the editor as gates": "⇄ Editörde kapılara indirerek aç",
+    "Open this module in the gate editor with blocks (adders, comparators, registers, MUX); sub-modules stay module blocks":
+      "Bu modülü editörde bloklarla aç (toplayıcı, karşılaştırıcı, register, MUX); alt modüller modül bloğu olarak kalır",
+    "Open this module in the gate editor as gates and flip-flops only (flattened)": "Bu modülü editörde yalnızca kapı ve flip-floplarla aç (düzleştirilmiş)", "⤓ Schematic as SVG": "⤓ Şemayı SVG olarak indir",
     "⤓ Viewer as HTML": "⤓ Görüntüleyiciyi HTML olarak indir",
     "Save this viewer as a single HTML file (works without VeriView)": "Bu görüntüleyiciyi tek bir HTML dosyası olarak kaydet (VeriView olmadan çalışır)",
     "◐ Light / dark": "◐ Açık / koyu", "Drawing the schematic ({n} cells)…": "Şema çiziliyor ({n} hücre)…",
@@ -506,7 +510,6 @@ VV_DATA.then((DATA) => {
     "saved {f}": "{f} kaydedildi",
     "Editing needs the launcher: run `veriview --ui` in the design folder and open the design from there.":
       "Düzenleme için başlatıcı gerekli: tasarım klasöründe `veriview --ui` çalıştırıp tasarımı oradan aç.",
-    "Open this module in the gate editor (as gates and flip-flops)": "Bu modülü kapı editöründe aç (kapılar ve flip-floplar olarak)",
     // FSM
     "Also in sub-modules: ": "Alt modüllerde de: ", "State machines in sub-modules: ": "Alt modüllerdeki durum makineleri: ",
     "No state machine in this module.": "Bu modülde durum makinesi yok.",
@@ -1512,14 +1515,17 @@ VV_DATA.then((DATA) => {
       $("code-save").disabled = false;
     }
   }
-  $("btn-editor").onclick = () => {
+  const openInEditor = (mode) => {
     if (!SERVER) return needServer();
     const m = moduleOf(state.path), label = (mods()[m] || {}).label || m;
     const q = new URLSearchParams();
     for (const f of SERVER.files || []) q.append("f", f);
     q.set("module", label);
+    if (mode) q.set("mode", mode);
     location.href = `${SERVER.editor}?${q.toString()}`;
   };
+  $("btn-editor").onclick = () => openInEditor("");
+  $("btn-editor-gates").onclick = () => openInEditor("gates");
   window.addEventListener("beforeunload", (e) => { if (editing.dirty) { e.preventDefault(); e.returnValue = ""; } });
 
   // drag the left edge of the panel to resize it
@@ -2137,7 +2143,7 @@ VV_DATA.then((DATA) => {
   window.addEventListener("hashchange", () => { readHash(); show(); });
   readHash();
   show();
-  if (!SERVER) $("btn-editor").hidden = true;   // a standalone HTML file: no editor to go to
+  if (!SERVER) $("btn-editor").hidden = $("btn-editor-gates").hidden = true;   // a standalone HTML file: no editor
   // back from a save in the code panel: show the edited file where it was
   try {
     const back = JSON.parse(sessionStorage.getItem("veriview-code-reopen") || "null");

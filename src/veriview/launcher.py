@@ -382,7 +382,8 @@ class Launcher:
         from .cli import prepare
         from .filelist import collect_sources
         from .synth import Synthesizer
-        from .to_editor import netlist_to_design
+        from .to_editor import netlist_to_blocks, netlist_to_design
+        gates = req.get("mode") == "gates"   # default: the editor's blocks, sub-modules as module blocks
         if req.get("files"):   # by file set (an /editor?from=... URL survives server restarts)
             argv = self.argv_for({**req, "top": None}, "--html")
         else:
@@ -401,9 +402,9 @@ class Launcher:
             sources = collect_sources(inputs, args.incdirs, args.defines)
             with tempfile.TemporaryDirectory(prefix="veriview.") as tmp:
                 out = Path(tmp) / "editor.json"
-                Synthesizer(sources, Path(tmp), frontend=args.frontend).synthesize(module or args.top, out,
-                                                                                   stage="editor")
-                return netlist_to_design(json.loads(out.read_text()))
+                synth = Synthesizer(sources, Path(tmp), frontend=args.frontend)
+                synth.synthesize(module or args.top, out, stage="editor" if gates else "editor-blocks")
+                return (netlist_to_design if gates else netlist_to_blocks)(json.loads(out.read_text()))
         try:
             return self.run_captured(go, lines)
         except VeriViewError as e:

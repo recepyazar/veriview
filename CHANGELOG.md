@@ -2,6 +2,7 @@
 
 ## 6.1.0 (unreleased)
 
+- **Open in the editor with blocks**: a module is drawn with the editor's blocks (ADD, SUB, CMP, MUX, DFF/REG, N-bit gates) instead of single gates, sub-modules stay module blocks (with their parameters), buses stay buses; cells without a block are mapped to gates. Registers with a non-zero reset value are kept exact (stored XOR'ed with the reset value). The flattened gate-level drawing remains as *Open in the editor as gates*.
 - **Module blocks in the gate editor**: any Verilog module of the folder (a drawn design too) as a block with its ports; the generated Verilog instantiates it, and the viewer finds the module's file. The launcher's folder now counts as a project for finding missing modules even without git.
 
 ## 6.0.0

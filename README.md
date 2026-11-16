@@ -101,7 +101,7 @@ Add `-t NAME` to make any module the top, e.g. a sub-block of the folder: `veriv
 **Editing an existing design.** **✎ Edit** in a viewer opened from the start page changes the design itself:
 - a drawn design opens in the gate editor with its drawing;
 - code is edited right in the viewer's code panel; **Ctrl+S** saves the file and rebuilds the schematic (simulation, timing, FSMs follow). A failed build keeps the last good schematic, shows the error and selects the line.
-- **⋯ → Draw as gates in the editor** opens the current module in the gate editor — synthesized to gates and flip-flops, flattened and laid out (inputs | registers | logic | outputs, every net on its own track). Change it and save it as a new `.v` file. Multi-bit ports stay buses (with a splitter after an input and a merger before an output); public net names are kept as gate names.
+- **⋯ → Open in the editor** opens the current module in the gate editor **with blocks**: adders, subtractors, comparators, MUX and registers become the editor's blocks, sub-modules stay module blocks, buses stay buses (splitters / mergers where bits are sliced or concatenated), and only cells without a block (`$pmux`, shifts, multipliers, ...) are mapped to gates. RTL net names are kept. A test checks that the redrawn design simulates exactly like the original. **⋯ → Open in the editor as gates** is the older, flattened gate-level drawing.
 
 That is all you need day to day: the top module is detected automatically and every feature (views, flatten, timing, FSM diagrams, simulation, source code) is a button in the viewer. The full syntax is
 

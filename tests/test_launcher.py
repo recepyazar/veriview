@@ -139,15 +139,19 @@ def test_edit_source_from_viewer(proj):
 def test_open_module_in_editor(proj):
     la = Launcher(proj)
     b = la.build({"files": ["rca/rca.f"], "stages": ["opt"]})
-    d = la.to_editor({"id": b["id"], "module": "fa"})
+    d = la.to_editor({"id": b["id"], "module": "fa"})                   # default: blocks
     assert d["module"] == "fa" and "error" not in d
-    types = {n["type"] for n in d["nodes"]}
-    assert {"in", "out"} <= types and types & {"xor", "xnor"}
-    whole = la.to_editor({"id": b["id"], "module": ""})          # the build's top, flattened
+    assert sorted(n.get("module", n["type"]) for n in d["nodes"] if n["type"] in ("inst", "or")) == ["ha", "ha", "or"]
+    g = la.to_editor({"id": b["id"], "module": "fa", "mode": "gates"})  # all gates, flattened
+    types = {n["type"] for n in g["nodes"]}
+    assert {"in", "out"} <= types and types & {"xor", "xnor"} and "inst" not in types
+    whole = la.to_editor({"id": b["id"], "module": "", "mode": "gates"})   # the build's top, flattened
     assert whole["module"] == "rca" and whole["warn"] == []
     ins = {n["name"]: n.get("bits", 1) for n in whole["nodes"] if n["type"] == "in"}
     assert ins == {"a": 8, "b": 8, "cin": 1}                          # buses stay buses (with a splitter)
     assert sum(n["type"] == "split" for n in whole["nodes"]) == 2 and any(n["type"] == "merge" for n in whole["nodes"])
+    blocks = la.to_editor({"id": b["id"], "module": ""})
+    assert sum(n["type"] == "inst" for n in blocks["nodes"]) == 8
     assert "error" in la.to_editor({"id": b["id"], "module": "nosuch"})
     la.shutdown()
 

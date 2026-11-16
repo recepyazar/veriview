@@ -5,6 +5,8 @@ Each design is synthesized for the editor's blocks (stage editor-blocks), conver
 the original and the redrawn design are simulated with the same random stimulus.
 """
 
+from __future__ import annotations
+
 import json
 import random
 import shutil

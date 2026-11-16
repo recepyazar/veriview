@@ -94,6 +94,8 @@ Add `-t NAME` to make any module the top, e.g. a sub-block of the folder: `veriv
 
 **Buses and blocks.** Inputs, constants and blocks have a width (**Bits** in the selection panel); gates, MUX, flip-flops, outputs and labels take the width of what drives them, buses are drawn thick with their width, and width mismatches are reported. Blocks: **ADD** (A + B + CIN → S, COUT), **SUB** (A − B → Y, BOUT), **CMP** (EQ / LT / GT), **MUX N:1**, **DEC** (one-hot), **REG** (D, EN, RST_N), **CNT** (EN, RST_N), **Split** / **Merge** (bus ↔ bits) and N-bit constants; EN, RST_N and CIN may stay unconnected.
 
+**Module blocks.** *+ Module block…* (Modules) lists the Verilog modules of the folder, drawn designs included; the chosen one becomes a block with its ports (widths from Yosys, default parameters) and the Verilog instantiates it (`fa u1 (.a(...), ...)`). *👁 View* finds the module's file in the folder by itself. The editor's own simulation does not look inside module blocks (their outputs stay 0); the viewer simulates them.
+
 **Simulate while drawing.** **▶ Simulate** runs the drawing right in the editor (no Yosys needed): click an input to toggle it (or type a value for a bus), **Step** / **▶ Run** clock the registers, 1-valued wires light up and buses show their values, outputs and registers show theirs. Editing keeps the simulation running, so a change shows its effect at once. The editor's simulator is tested against the simulation of the generated Verilog.
 
 **Editing an existing design.** **✎ Edit** in a viewer opened from the start page changes the design itself:

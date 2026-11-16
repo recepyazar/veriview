@@ -64,6 +64,9 @@ class Launcher:
         self.root = root.resolve()
         self.builds: dict[str, Build] = {}
         self.by_key: dict[str, str] = {}   # /view?f=... -> build id (one build per file set and options)
+        from . import deps
+        if self.root not in deps.EXTRA_ROOTS:   # missing modules are looked up here even without git
+            deps.EXTRA_ROOTS.append(self.root)
         self.lock = threading.Lock()   # one Yosys run at a time (logs and stdout are global)
 
     # --- helpers -------------------------------------------------------------------------
@@ -337,6 +340,43 @@ class Launcher:
             threading.Thread(target=self._rebuild, args=(b,), daemon=True).start()
         return {"path": p.relative_to(self.root).as_posix(), "attempt": attempt}
 
+    def modules(self, req: dict[str, Any]) -> dict[str, Any]:
+        """Modules defined in the folder's Verilog files (for module blocks in the gate editor)."""
+        import os
+
+        from .deps import SKIP, scan
+        out: list[dict[str, str]] = []
+        for dirpath, dirnames, filenames in os.walk(self.root):
+            dirnames[:] = sorted(d for d in dirnames if d not in SKIP and d not in HIDDEN_DIRS and not d.startswith(".")
+                                 and not (Path(dirpath) / d / ".git").exists())
+            for fn in sorted(filenames):
+                if fn.endswith((".v", ".sv")):
+                    f = Path(dirpath) / fn
+                    rel = f.relative_to(self.root).as_posix()
+                    out += [{"module": m, "file": rel} for m in sorted(scan(f)[1])]
+            if len(out) > 3000:
+                break
+        return {"modules": out}
+
+    def module_ports(self, req: dict[str, Any]) -> dict[str, Any]:
+        from .filelist import collect_sources
+        from .synth import TOP_RE, Synthesizer
+        module = str(req.get("module", ""))
+        if not TOP_RE.match(module):
+            raise VeriViewError(f"Invalid module name: {module}")
+        f = self.safe(str(req.get("file", "")))
+        lines: list[str] = []
+
+        def go() -> list[dict[str, Any]]:
+            sources = collect_sources([str(f)], [], [])
+            with tempfile.TemporaryDirectory(prefix="veriview.") as tmp:
+                return Synthesizer(sources, Path(tmp)).module_ports(module)
+        try:
+            ports = self.run_captured(go, lines)
+            return {"module": module, "file": f.relative_to(self.root).as_posix(), "ports": ports}
+        except VeriViewError as e:
+            return {"error": str(e), "log": lines}
+
     def to_editor(self, req: dict[str, Any]) -> dict[str, Any]:
         """A module of a build as a gate-editor drawing (flattened, gate level)."""
         from .cli import prepare
@@ -578,6 +618,10 @@ def make_handler(launcher: Launcher, allowed_hosts: set[str]):
                     return self._json(launcher.save_source(req))
                 if route == "/api/to_editor":
                     return self._json(launcher.to_editor(req))
+                if route == "/api/modules":
+                    return self._json(launcher.modules(req))
+                if route == "/api/module_ports":
+                    return self._json(launcher.module_ports(req))
                 if route == "/api/drawing/load":
                     return self._json(launcher.load_drawing(req))
                 if route == "/api/drawing/save":

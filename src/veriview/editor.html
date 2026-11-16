@@ -107,6 +107,16 @@
   #simbar select { padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
   #simbar .hint { color: var(--muted); font-size: 12px; }
   #sim-cycle { color: var(--muted); min-width: 5em; }
+  #modpick { position: fixed; inset: 0; z-index: 40; background: rgba(0, 0, 0, 0.3); display: flex; align-items: center; justify-content: center; }
+  #modpick .box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; width: min(520px, 92vw); max-height: 75vh;
+    display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); }
+  #modpick .head { display: flex; gap: 8px; align-items: center; padding: 10px; border-bottom: 1px solid var(--border); }
+  #modpick input { flex: 1; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+  #modpick ul { list-style: none; margin: 0; padding: 4px; overflow: auto; }
+  #modpick li { padding: 6px 10px; border-radius: 6px; cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
+  #modpick li:hover, #modpick li.on { background: var(--accent-soft); }
+  #modpick li small { color: var(--muted); margin-left: auto; font-size: 12px; }
+  #modpick .note { padding: 8px 12px; color: var(--muted); font-size: 13px; }
   .rubber { fill: var(--accent); fill-opacity: 0.08; stroke: var(--accent); stroke-dasharray: 4 3; }
   #code { grid-area: code; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--border); }
   #code .head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
@@ -187,10 +197,21 @@
     <button class="btn" data-add="split" title="Splitter: a bus into single bits (B0 = least significant bit)" data-t>Split</button>
     <button class="btn" data-add="merge" title="Merger: single bits into a bus (B0 = least significant bit)" data-t>Merge</button>
   </div>
+  <h3 data-t>Modules</h3>
+  <div class="grid">
+    <button class="btn" id="b-addmod" title="Use a Verilog module of the folder (a drawn design too) as a block" style="grid-column: span 2" data-t>+ Module block…</button>
+  </div>
   <h3 data-t>Selection</h3>
   <div id="props"></div>
   <div class="help" id="help"></div>
 </aside>
+<div id="modpick" hidden>
+  <div class="box">
+    <div class="head"><input id="modpick-q" placeholder="Search modules…" spellcheck="false"><button class="btn" id="modpick-x" data-t>Cancel</button></div>
+    <div class="note" id="modpick-note"></div>
+    <ul id="modpick-list"></ul>
+  </div>
+</div>
 <div id="canvas">
   <div id="simbar" hidden>
     <label for="sim-clk" data-t>Clock</label> <select id="sim-clk"></select>
@@ -284,6 +305,14 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "The last drawing ({f}) has unsaved changes. Discard them?": "Son çizimde ({f}) kaydedilmemiş değişiklikler var. Silinsin mi?",
     "Unsaved changes restored.": "Kaydedilmemiş değişiklikler geri yüklendi.",
     "{m}: {n} gates and flip-flops — Save keeps it as a new file": "{m}: {n} kapı ve flip-flop — Kaydet ile yeni bir dosya olarak saklanır",
+    "Modules": "Modüller", "+ Module block…": "+ Modül bloğu…", "Cancel": "Vazgeç",
+    "Use a Verilog module of the folder (a drawn design too) as a block": "Klasördeki bir Verilog modülünü (çizilmiş bir tasarımı da) blok olarak kullan",
+    "Search modules…": "Modül ara…", "Looking for modules…": "Modüller aranıyor…", "No module matches.": "Eşleşen modül yok.",
+    "No Verilog modules in this folder.": "Bu klasörde Verilog modülü yok.", "Reading the ports of {m}…": "{m} modülünün portları okunuyor…",
+    "Module blocks need the launcher (run `veriview`).": "Modül blokları için başlatıcı gerekli (`veriview`).",
+    "Instance name": "Örnek (instance) adı", "module {m} from {f}": "{m} modülü, {f}",
+    "module blocks are not simulated here (outputs 0): use 👁 View": "modül blokları burada simüle edilmez (çıkışlar 0): 👁 Görüntüle'yi kullan",
+    "invalid module name {name}": "geçersiz modül adı {name}",
     "▶ Simulate": "▶ Simüle et", "■ Stop simulation": "■ Simülasyonu durdur",
     "Simulation: click inputs to change them, clock the registers, watch the wires": "Simülasyon: girişlere tıklayıp değiştir, register'ları saatle, telleri izle",
     "Clock": "Saat", "Step ⏵": "Adım ⏵", "One clock cycle (rising and falling edge)": "Bir saat çevrimi (yükselen ve düşen kenar)",
@@ -319,13 +348,17 @@ const EDITOR = /*__EDITOR_DATA__*/null;
   // wire: {id, from: {node, pin}, to: {node, pin}} (from = an output pin)
   const { GATE2, BLOCK_TYPES, pinsOf } = VVEditor;
   const PORTS = VVEditor.PORT_TYPES;
-  const isBlock = (nd) => BLOCK_TYPES.includes(nd.type);
+  const isBlock = (nd) => BLOCK_TYPES.includes(nd.type) || nd.type === "inst";
   const sizeOf = (nd) => {
     if (nd.type === "in" || nd.type === "out") return { w: 70, h: 30 };
     if (nd.type === "const") return { w: 56, h: 30 };
     if (nd.type.startsWith("const")) return { w: 36, h: 30 };
     if (isBlock(nd)) {
       const p = pinsOf(nd), n = Math.max(p.ins.length, p.outs.length);
+      if (nd.type === "inst") {   // wide enough for the module name and the longest port names
+        const longest = Math.max(0, ...[...p.ins, ...p.outs].map((x) => x.length));
+        return { w: Math.max(110, String(nd.module || "").length * 8 + 30, longest * 12 + 40), h: Math.max(50, 20 * n + 14) };
+      }
       return { w: nd.type === "split" || nd.type === "merge" ? 50 : 90, h: Math.max(50, 20 * n + 14) };
     }
     if (nd.type === "tag") return { w: Math.max(50, 22 + String(nd.name || "").length * 7.4), h: 24 };
@@ -429,7 +462,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
         b.append(el("text", { class: "pinname", x: w - 6, y: pp.y + 3.5, "text-anchor": "end" }, small ? pin.slice(1) : pin));
       }
       if (!small) {
-        const title = { add: "+", sub: "−", cmp: "=?", muxn: "MUX", dec: "DEC", reg: "REG", cnt: "+1" }[t];
+        const title = { add: "+", sub: "−", cmp: "=?", muxn: "MUX", dec: "DEC", reg: "REG", cnt: "+1", inst: nd.module }[t];
         b.append(el("text", { x: w / 2, y: h / 2 + 4, "text-anchor": "middle", style: "font-weight:700" }, title));
       }
       g.append(b);
@@ -463,7 +496,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     if (t === "const") g.append(el("text", { class: "kind", x: 0, y: -4 }, `${bits}'d`));
     if ((t === "in" || t === "out") && bits > 1) g.append(el("text", { class: "kind", x: 0, y: -4 }, `[${bits - 1}:0]`));
     if (!PORTS.includes(t)) {
-      const KIND = { dffr: "DFF+R", muxn: `MUX ${pinsOf(nd).ins.length - 1}:1`, dec: `DEC ${bits}→${2 ** bits}`, split: "SPLIT", merge: "MERGE" };
+      const KIND = { inst: nd.label || `u${nd.id}`, dffr: "DFF+R", muxn: `MUX ${pinsOf(nd).ins.length - 1}:1`, dec: `DEC ${bits}→${2 ** bits}`, split: "SPLIT", merge: "MERGE" };
       const kind = (KIND[t] || t.toUpperCase()) + (bits > 1 && t !== "dec" ? ` ·${bits}` : "");
       g.append(el("text", { class: "kind", x: 0, y: -4 }, kind));
       if (nd.label) g.append(el("text", { class: "lbl", x: kind.length * 6.6 + 6, y: -4 }, nd.label));
@@ -584,7 +617,8 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       if (nd.type === "in") { const p = document.createElement("div"); p.textContent = _t("This wire comes from input {name}: rename the input port.", { name: nd.name }); box.append(p); return; }
       if (nd.type.startsWith("const")) { const p = document.createElement("div"); p.textContent = _t("Constant wires have no name."); box.append(p); return; }
     } else what.textContent = nd.type === "tag" ? _t("Label") : nd.type === "in" || nd.type === "out" ? (nd.type === "in" ? _t("Input") : _t("Output"))
-      : nd.type.startsWith("const") ? _t("Constant") : (nd.type === "dffr" ? "DFF+R" : nd.type === "muxn" ? "MUX N:1 " : nd.type.toUpperCase()) + nd.id;
+      : nd.type.startsWith("const") ? _t("Constant") : nd.type === "inst" ? `${nd.module} · ${nd.label || "u" + nd.id}`
+      : (nd.type === "dffr" ? "DFF+R" : nd.type === "muxn" ? "MUX N:1 " : nd.type.toUpperCase()) + nd.id;
     const field = (labelText, value, placeholder, onSet) => {
       const l = document.createElement("label"); l.textContent = labelText;
       const i = document.createElement("input"); i.type = "text"; i.value = value || ""; i.placeholder = placeholder || ""; i.id = "prop-name"; i.spellcheck = false;
@@ -597,6 +631,13 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     };
     if (nd.type === "in" || nd.type === "out") field(_t("Port name"), nd.name, "", (v) => { if (v) nd.name = v; });
     else if (nd.type === "tag") field(_t("Label name (same name = same net)"), nd.name, "", (v) => { if (v) nd.name = v; });
+    else if (nd.type === "inst" && !viaWire) {
+      field(_t("Instance name"), nd.label, _t("automatic") + `: u${nd.id}`, (v) => { if (v) nd.label = v; else delete nd.label; });
+      const info = document.createElement("div");
+      info.style.cssText = "margin-top:6px;color:var(--muted);font-size:12px";
+      info.textContent = _t("module {m} from {f}", { m: nd.module, f: nd.file || "?" });
+      box.append(info);
+    }
     else if (!nd.type.startsWith("const")) {
       field(viaWire ? _t("Net name (all wires from this output)") : _t("Net name (the wire this gate drives)"), nd.label,
         _t("automatic") + `: ${nd.type === "dff" || nd.type === "dffr" ? "q" : nd.type}${nd.id}` + (nd.type === "cmp" ? "_eq…" : ""), (v) => { if (v) nd.label = v; else delete nd.label; });
@@ -620,7 +661,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
       i.onkeydown = (e) => { if (e.key === "Enter") { apply(); i.blur(); } if (e.key === "Escape") i.blur(); };
       box.append(l, i);
     };
-    if (!viaWire && nd.type !== "tag" && nd.type !== "const0" && nd.type !== "const1") {
+    if (!viaWire && nd.type !== "tag" && nd.type !== "const0" && nd.type !== "const1" && nd.type !== "inst") {
       const auto = VVEditor.AUTO.has(nd.type), lim = nd.type === "dec" ? 5 : nd.type === "split" || nd.type === "merge" ? 32 : 64;
       numField(nd.type === "dec" ? _t("Input bits (outputs: 2^bits)") : _t("Bits (width)"), nd.bits !== undefined ? nd.bits : auto ? undefined : VVEditor.defaultBits(nd),
         auto ? _t("automatic") + `: ${widthOf(nd)}` : "", nd.type === "split" || nd.type === "merge" ? 2 : 1, lim,
@@ -653,7 +694,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     const stem = base.replace(/\d+$/, "");
     for (let i = 1; ; i++) if (!used.has(stem + i)) return stem + i;
   };
-  function addNode(type) {
+  function addNode(type, extra = null) {
     const c = { x: vb.x + vb.w / 2, y: vb.y + vb.h / 2 };
     const off = (D.nodes.length % 6) * 20;
     const nd = { id: D.seq++, type, x: Math.round((c.x - 40 + off) / 10) * 10, y: Math.round((c.y - 20 + off) / 10) * 10 };
@@ -664,10 +705,50 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     if (isBlock(nd) || type === "const") nd.bits = VVEditor.defaultBits(nd);
     if (type === "muxn") nd.k = 4;
     if (type === "const") nd.value = 0;
+    if (extra) Object.assign(nd, extra);
     D.nodes.push(nd);
     clearSel(); sel.nodes.add(nd.id);
     commit(); draw();
+    return nd;
   }
+  // ---- module blocks: a Verilog module of the folder as a block ------------------------------
+  let modList = null;
+  async function openModulePicker() {
+    if (!EDITOR || !EDITOR.launcher) { alert(_t("Module blocks need the launcher (run `veriview`).")); return; }
+    $("modpick").hidden = false; $("modpick-q").value = ""; $("modpick-note").textContent = _t("Looking for modules…");
+    $("modpick-list").textContent = "";
+    setTimeout(() => $("modpick-q").focus());
+    if (!modList) { const r = await api("/api/modules", {}); modList = r.modules || []; }
+    renderModList();
+  }
+  function renderModList() {
+    const q = $("modpick-q").value.trim().toLowerCase(), self = $("modname").value;
+    const items = modList.filter((m) => m.module !== self && (!q || m.module.toLowerCase().includes(q) || m.file.toLowerCase().includes(q)));
+    $("modpick-note").textContent = modList.length ? (items.length ? "" : _t("No module matches.")) : _t("No Verilog modules in this folder.");
+    const ul = $("modpick-list"); ul.textContent = "";
+    for (const m of items.slice(0, 300)) {
+      const li = document.createElement("li");
+      li.innerHTML = `<b>${esc(m.module)}</b><small>${esc(m.file)}</small>`;
+      li.onclick = () => placeModule(m);
+      ul.append(li);
+    }
+  }
+  async function placeModule(m) {
+    $("modpick-note").textContent = _t("Reading the ports of {m}…", { m: m.module });
+    const r = await api("/api/module_ports", m);
+    if (r.error) { $("modpick-note").textContent = r.error.split("\n").slice(-2).join(" "); return; }
+    $("modpick").hidden = true;
+    addNode("inst", { module: r.module, file: r.file, ports: r.ports });
+  }
+  $("b-addmod").onclick = openModulePicker;
+  $("modpick-x").onclick = () => { $("modpick").hidden = true; };
+  $("modpick").addEventListener("click", (e) => { if (e.target.id === "modpick") $("modpick").hidden = true; });
+  $("modpick-q").addEventListener("input", renderModList);
+  $("modpick-q").addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") $("modpick").hidden = true;
+    if (e.key === "Enter") { const first = $("modpick-list").querySelector("li"); if (first) first.click(); }
+  });
   for (const b of document.querySelectorAll("[data-add]")) b.onclick = () => addNode(b.dataset.add);
   function removeSel() {
     if (!selCount()) return;
@@ -857,7 +938,7 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     if (nd.type === "in" || nd.type === "out" || nd.type === "tag") {
       inlineEdit(cx, cy, nd.name, "", (v) => { if (v) nd.name = v; });
     } else {
-      inlineEdit(cx, cy, nd.label, `${nd.type === "dff" || nd.type === "dffr" ? "q" : nd.type}${nd.id}`, (v) => { if (v) nd.label = v; else delete nd.label; });
+      inlineEdit(cx, cy, nd.label, `${nd.type === "inst" ? "u" : nd.type === "dff" || nd.type === "dffr" ? "q" : nd.type}${nd.id}`, (v) => { if (v) nd.label = v; else delete nd.label; });
     }
   }
   svg.addEventListener("dblclick", (e) => {
@@ -907,7 +988,8 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     if (ins.some((n) => String(n.id) === keep)) pick.value = keep;
     else if (clocks.length) pick.value = clocks[0].id;
     $("sim-step").disabled = $("sim-auto").disabled = !ins.length;
-    $("sim-cycle").textContent = _t("cycle {n}", { n: SIM.cycle }) + (SIM.unstable ? " · " + _t("oscillates (combinational loop)") : "");
+    $("sim-cycle").textContent = _t("cycle {n}", { n: SIM.cycle }) + (SIM.unstable ? " · " + _t("oscillates (combinational loop)") : "")
+      + (SIM.opaque ? " · " + _t("module blocks are not simulated here (outputs 0): use 👁 View") : "");
   }
   const stopAuto = () => { clearInterval(simTimer); simTimer = null; $("sim-auto").textContent = _t("▶ Run"); };
   const simStep = () => { const id = +$("sim-clk").value; if (!id) return; SIM.clock(id); draw(); };

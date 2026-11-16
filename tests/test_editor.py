@@ -316,3 +316,47 @@ def test_editor_simulator_labels_and_derived_clock(tmp_path):
          "wires": [W(1, "Y", 3, "A"), W(2, "Y", 3, "B"), W(3, "Y", 4, "T"), W(5, "T", 6, "CLK"), W(6, "Q", 7, "A")]}
     ops = [["set", "en", 1], ["clock", "clk", 3], ["get", "q"], ["set", "en", 0], ["clock", "clk", 5], ["get", "q"]]
     assert editor_sim(tmp_path, d, ops) == [3, 3]
+
+
+# ---- module blocks: instances of Verilog modules of the project --------------------------------
+FA_PORTS = [{"name": "a", "dir": "input", "bits": 1}, {"name": "b", "dir": "input", "bits": 1},
+            {"name": "cin", "dir": "input", "bits": 1}, {"name": "s", "dir": "output", "bits": 1},
+            {"name": "cout", "dir": "output", "bits": 1}]
+ADD2 = {
+    "nodes": [node(1, "in", name="a", bits=2), node(2, "in", name="b", bits=2), node(3, "split", bits=2),
+              node(4, "split", bits=2), node(5, "inst", module="fa", file="rca/fa.sv", ports=FA_PORTS, label="f0"),
+              node(6, "inst", module="fa", file="rca/fa.sv", ports=FA_PORTS), node(7, "merge", bits=2),
+              node(8, "out", name="s"), node(9, "out", name="c"), node(10, "const0")],
+    "wires": [W(1, "Y", 3, "A"), W(2, "Y", 4, "A"), W(3, "B0", 5, "a"), W(4, "B0", 5, "b"), W(10, "Y", 5, "cin"),
+              W(3, "B1", 6, "a"), W(4, "B1", 6, "b"), W(5, "cout", 6, "cin"), W(5, "s", 7, "B0"), W(6, "s", 7, "B1"),
+              W(7, "Y", 8, "A"), W(6, "cout", 9, "A")],
+}
+
+
+def test_module_block_verilog(tmp_path):
+    res = to_verilog(tmp_path, ADD2, "add2")
+    text = res["text"]
+    assert res["warn"] == []
+    assert ("  fa f0 (\n    .a(split3[0]),\n    .b(split4[0]),\n    .cin(1'b0),\n    .s(f0_s),\n"
+            "    .cout(f0_cout)\n  );") in text
+    assert "  fa u6 (" in text and ".cin(f0_cout)" in text and "assign c = u6_cout;" in text
+    # an unconnected input of an instance is tied to 0, with a warning naming the instance
+    d = json.loads(json.dumps(ADD2))
+    d["wires"] = [w for w in d["wires"] if not (w["to"]["node"] == 6 and w["to"]["pin"] == "cin")]
+    assert any("cin of fa u6" in w for w in to_verilog(tmp_path, d, "add2")["warn"])
+
+
+@needs_tools
+def test_module_block_design_simulates(tmp_path):
+    """The drawing instantiates fa: the module's file is found in the project and the adder works."""
+    proj = tmp_path / "proj"
+    (proj / ".git").mkdir(parents=True)
+    shutil.copytree(Path(__file__).resolve().parent.parent / "ex_design" / "rca", proj / "rca")
+    src = proj / "add2.v"
+    src.write_text(to_verilog(tmp_path, ADD2, "add2")["text"])
+    data = build(tmp_path, src, stage="opt")
+    ops, exp = [], []
+    for a, b in itertools.product(range(4), repeat=2):
+        ops += [["set", "a", a], ["set", "b", b], ["get", "s"], ["get", "c"]]
+        exp += [(a + b) & 3, (a + b) >> 2]
+    assert simulate(tmp_path, data, "opt", ops) == exp

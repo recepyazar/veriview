@@ -1,5 +1,9 @@
 # Changelog
 
+## 6.1.0 (unreleased)
+
+- **Module blocks in the gate editor**: any Verilog module of the folder (a drawn design too) as a block with its ports; the generated Verilog instantiates it, and the viewer finds the module's file. The launcher's folder now counts as a project for finding missing modules even without git.
+
 ## 6.0.0
 
 - **Memories in the simulator**: memories are collected into one `$mem_v2` cell each (one box in the RTL and optimized schematics) and simulated (combinational and clocked read ports, read-before-write, transparent ports, byte enables, initial contents); before, inferred memories were unsupported in the simulation. In the gate view memories of 2 kbit and more stay memory macros (like SRAMs) instead of hundreds of thousands of flip-flops; the timing analysis treats them as macros (access time, setup/hold at their ports).

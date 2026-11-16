@@ -297,3 +297,26 @@ def test_big_schematics_drawn_on_demand(proj, monkeypatch):
         server.shutdown()
         server.server_close()
         la.shutdown()
+
+
+@needs_tools
+def test_module_blocks_api(tmp_path):
+    root = tmp_path / "lib"          # not a git repository: the launcher's folder counts as the project
+    (root / "blocks").mkdir(parents=True)
+    shutil.copy(EX / "counter.sv", root / "blocks")
+    shutil.copy(EX / "rca" / "fa.sv", root / "blocks")
+    shutil.copy(EX / "rca" / "ha.sv", root / "blocks")
+    la = Launcher(root)
+    mods = {(m["module"], m["file"]) for m in la.modules({})["modules"]}
+    assert {("counter", "blocks/counter.sv"), ("fa", "blocks/fa.sv"), ("ha", "blocks/ha.sv")} <= mods
+    r = la.module_ports({"file": "blocks/counter.sv", "module": "counter"})
+    assert r["ports"] == [{"name": "clk", "dir": "input", "bits": 1}, {"name": "rst_n", "dir": "input", "bits": 1},
+                          {"name": "count", "dir": "output", "bits": 4}]
+    assert [p["name"] for p in la.module_ports({"file": "blocks/fa.sv", "module": "fa"})["ports"]] == \
+        ["a", "b", "cin", "s", "cout"]                                  # ha found next to it (sub-module)
+    assert "not found" in la.module_ports({"file": "blocks/fa.sv", "module": "nosuch"})["error"]
+    with pytest.raises(VeriViewError, match="Invalid module"):
+        la.module_ports({"file": "blocks/fa.sv", "module": "a; rm"})
+    with pytest.raises(VeriViewError, match="outside"):
+        la.module_ports({"file": "../x.v", "module": "x"})
+    la.shutdown()

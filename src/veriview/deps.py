@@ -67,11 +67,19 @@ def scan(path: Path) -> Scan:
         return frozenset(), frozenset(), frozenset(), frozenset(), ()
 
 
+# folders that count as a project even without git (the launcher registers its start folder)
+EXTRA_ROOTS: list[Path] = []
+
+
 def project_root(paths: list[Path]) -> Path | None:
     for p in paths[:1]:
-        for d in Path(p).resolve().parents:
+        parents = Path(p).resolve().parents
+        for d in parents:
             if (d / ".git").exists():
                 return d
+        for r in EXTRA_ROOTS:
+            if r in parents:
+                return r
     return None
 
 

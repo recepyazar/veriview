@@ -16,6 +16,8 @@
  *           reg (D, CLK, EN, RST_N -> Q), cnt (CLK, EN, RST_N -> Q = Q + 1), dec (A -> Y = one-hot, 2^bits),
  *           muxn (D0..D{k-1}, S -> Y), split (A -> B0..B{bits-1}), merge (B0..B{bits-1} -> Y; B0 = LSB)
  *   EN, RST_N and CIN of blocks may stay unconnected (EN = 1, no reset, CIN = 0).
+ *   inst: an instance of a Verilog module of the project {module, file, ports: [{name, dir, bits}]};
+ *         label = instance name. Not simulated by the editor (its contents are not drawn).
  */
 const GATE2 = ["and", "or", "nand", "nor", "xor", "xnor"];
 const PORT_TYPES = ["in", "out", "const0", "const1", "const", "tag"];
@@ -51,6 +53,10 @@ function pinsOf(nd) {
     case "reg": return { ins: ["D", "CLK", "EN", "RST_N"], outs: ["Q"] };
     case "cnt": return { ins: ["CLK", "EN", "RST_N"], outs: ["Q"] };
     case "dec": return { ins: ["A"], outs: ["Y"] };
+    case "inst": {
+      const ps = nd.ports || [];
+      return { ins: ps.filter((p) => p.dir !== "output").map((p) => p.name), outs: ps.filter((p) => p.dir === "output").map((p) => p.name) };
+    }
     case "muxn": return { ins: [...range(clampBits(nd.k || 4, 2, 16)).map((i) => "D" + i), "S"], outs: ["Y"] };
     case "split": return { ins: ["A"], outs: range(clampBits(n, 2, 32)).map((i) => "B" + i) };
     case "merge": return { ins: range(clampBits(n, 2, 32)).map((i) => "B" + i), outs: ["Y"] };
@@ -106,8 +112,10 @@ function analyze(D) {
     memo.set(nd.id, v);
     return v;
   }
+  const portBits = (nd, pin) => { const p = (nd.ports || []).find((x) => x.name === pin); return p ? Math.max(1, p.bits | 0) : 1; };
   function outW(nd, pin) {
     if (!nd) return 1;
+    if (nd.type === "inst") return portBits(nd, pin);
     const t = nd.type, n = width(nd);
     if ((t === "add" && pin === "COUT") || (t === "sub" && pin === "BOUT") || t === "cmp" || t === "split") return 1;
     if (t === "dec") return 2 ** clampBits(n, 1, 6);
@@ -115,6 +123,7 @@ function analyze(D) {
   }
   function inW(nd, pin) {
     const t = nd.type;
+    if (t === "inst") return portBits(nd, pin);
     if (["CLK", "RST_N", "EN", "CIN"].includes(pin) || t === "merge") return 1;
     if (pin === "S") return t === "muxn" ? selBits(clampBits(nd.k || 4, 2, 16)) : 1;
     return width(nd);
@@ -168,9 +177,10 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
   const W = (nd) => A.width(nd);
   const zero = (n) => (n === 1 ? "1'b0" : `${n}'d0`);
   const decl = (n) => (n === 1 ? "" : `[${n - 1}:0] `);
-  const nodeName = (nd) => `${nd.type === "dffr" ? "DFF+R" : nd.type.toUpperCase()}${nd.id}`;
+  const nodeName = (nd) => (nd.type === "inst" ? `${nd.module} ${labelOf.get(nd.id) || "u" + nd.id}`
+    : `${nd.type === "dffr" ? "DFF+R" : nd.type.toUpperCase()}${nd.id}`);
   // the base name of a node's nets; secondary outputs get _<pin> appended
-  const base = (nd) => labelOf.get(nd.id) || ((nd.type === "dff" || nd.type === "dffr") ? `q${nd.id}` : `${nd.type}${nd.id}`);
+  const base = (nd) => labelOf.get(nd.id) || (nd.type === "inst" ? `u${nd.id}` : (nd.type === "dff" || nd.type === "dffr") ? `q${nd.id}` : `${nd.type}${nd.id}`);
   const PRIMARY = { add: "S", sub: "Y", reg: "Q", cnt: "Q", dec: "Y", muxn: "Y", merge: "Y" };
   const net = (nd, pin) => {
     if (nd.type === "in") return ident(nd.name);
@@ -179,6 +189,7 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
     if (nd.type === "const") { const n = W(nd); return `${n}'d${Math.max(0, Math.floor(+nd.value || 0)) % 2 ** Math.min(n, 52)}`; }
     if (nd.type === "split") return `${base(nd)}[${+String(pin || "B0").slice(1)}]`;
     if (nd.type === "cmp") return `${base(nd)}_${String(pin || "EQ").toLowerCase()}`;
+    if (nd.type === "inst") return `${base(nd)}_${ident(pin)}`;
     if (PRIMARY[nd.type] && pin && pin !== PRIMARY[nd.type]) return `${base(nd)}_${pin.toLowerCase()}`;
     return base(nd);
   };
@@ -197,7 +208,8 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
     return net(from, w.from.pin);
   };
   const gates = D.nodes.filter((n) => !PORT_TYPES.includes(n.type));
-  const comb = gates.filter((n) => !SEQ_TYPES.includes(n.type)), ffs = gates.filter((n) => SEQ_TYPES.includes(n.type));
+  const insts = gates.filter((n) => n.type === "inst");
+  const comb = gates.filter((n) => !SEQ_TYPES.includes(n.type) && n.type !== "inst"), ffs = gates.filter((n) => SEQ_TYPES.includes(n.type));
   const OP = { and: " & ", or: " | ", xor: " ^ ", nand: " & ", nor: " | ", xnor: " ^ " };
   const splitName = (g) => net(g, "B0").replace(/\[\d+\]$/, "");
   // declarations, grouped by width
@@ -207,6 +219,8 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
     else for (const pin of pinsOf(g).outs) wires.push([net(g, pin), A.outW(g, pin)]);
   }
   for (const f of ffs) regs.push([net(f, "Q"), W(f)]);
+  for (const g of insts) for (const pin of pinsOf(g).outs) wires.push([net(g, pin), A.outW(g, pin)]);
+  for (const g of insts) if (!isId(g.module) || KEYWORDS.has(g.module)) warn.push(t("invalid module name {name}", { name: g.module }));
   const declLines = (kw, list) => {
     const by = new Map();
     for (const [nm, n] of list) { if (!by.has(n)) by.set(n, []); by.get(n).push(nm); }
@@ -260,6 +274,11 @@ function toVerilog(D, moduleName, t = (s, v) => { let o = s; for (const [k, x] o
     if (rst) L.push(`  always @(posedge ${clk} or negedge ${rst})`, `    if (!${rst}) ${q} <= ${zero(n)};`, `    else ${upd}`);
     else L.push(`  always @(posedge ${clk})`, `    ${upd}`);
   }
+  for (const g of insts) {   // module instances: one named connection per port
+    const ports = g.ports || [];
+    const conn = ports.map((p) => `    .${ident(p.name)}(${p.dir === "output" ? net(g, p.name) : drv(g, p.name)})`);
+    L.push("", `  ${ident(g.module)} ${base(g)} (`, conn.join(",\n"), "  );");
+  }
   if (outs.length) L.push("");
   for (const o of outs) L.push(`  assign ${ident(o.name)} = ${drv(o, "A")};`);
   L.push("", "endmodule", "");
@@ -298,7 +317,8 @@ function createSim(D0) {
   function build(Dn) {
     D = Dn; A = analyze(D); byId = A.byId;
     const gates = D.nodes.filter((n) => !PORT_TYPES.includes(n.type));
-    comb = gates.filter((n) => !SEQ_TYPES.includes(n.type)); ffs = gates.filter((n) => SEQ_TYPES.includes(n.type));
+    comb = gates.filter((n) => !SEQ_TYPES.includes(n.type) && n.type !== "inst"); ffs = gates.filter((n) => SEQ_TYPES.includes(n.type));
+    sim.opaque = gates.filter((n) => n.type === "inst").length;   // module instances: outputs stay 0
     // topological order of the combinational nodes (nodes on loops at the end; passes repeat until stable)
     const deg = new Map(comb.map((g) => [g.id, 0])), succ = new Map(comb.map((g) => [g.id, []]));
     for (const g of comb) for (const pin of pinsOf(g).ins) {

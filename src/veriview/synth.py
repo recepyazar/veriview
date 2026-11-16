@@ -8,7 +8,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 from . import log
 from .deps import project_root
@@ -412,6 +412,21 @@ class Synthesizer:
             self._yosys(fe, script, f"synth_{stage or self.stage}.ys")
 
         self._with_frontend(action)
+
+    def module_ports(self, top: str) -> list[dict[str, Any]]:
+        """Ports of a module (default parameters): [{name, dir, bits}] in declaration order."""
+        out = self.work_dir / "ports.json"
+
+        def action(fe: str) -> list[dict[str, Any]]:
+            script = [*self._read_commands(fe, top), f"hierarchy -top {top}", "proc",
+                      f"write_json {yosys_quote(str(out))}"]
+            self._yosys(fe, script, "ports.ys")
+            mods = json.loads(out.read_text())["modules"]
+            name = next((n for n, m in mods.items() if str(m.get("attributes", {}).get("top", "")).strip("0")), top)
+            return [{"name": n, "dir": p.get("direction", "input"), "bits": len(p.get("bits", []))}
+                    for n, p in mods[name].get("ports", {}).items()]
+        self._top = top
+        return self._with_frontend(action)
 
     def top_candidates(self) -> list[str]:
         """Modules that no other module instantiates (possible top modules), sorted."""

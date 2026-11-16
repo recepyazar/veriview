@@ -360,3 +360,40 @@ def test_module_block_design_simulates(tmp_path):
         ops += [["set", "a", a], ["set", "b", b], ["get", "s"], ["get", "c"]]
         exp += [(a + b) & 3, (a + b) >> 2]
     assert simulate(tmp_path, data, "opt", ops) == exp
+
+
+def _js(tmp_path: Path, code: str):
+    script = tmp_path / "t.js"
+    script.write_text(f"const E = require({json.dumps(str(CORE))});\nconsole.log(JSON.stringify({code}));")
+    r = subprocess.run([NODE, str(script)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def test_truth_table(tmp_path):
+    # full adder drawn with gates: the table and the minimal expressions
+    fa = {"nodes": [node(1, "in", name="a"), node(2, "in", name="b"), node(3, "in", name="cin"),
+                    node(10, "xor"), node(11, "xor"), node(12, "and"), node(13, "and"), node(14, "or"),
+                    node(20, "out", name="s"), node(21, "out", name="cout")],
+          "wires": [W(1, "Y", 10, "A"), W(2, "Y", 10, "B"), W(10, "Y", 11, "A"), W(3, "Y", 11, "B"),
+                    W(1, "Y", 12, "A"), W(2, "Y", 12, "B"), W(10, "Y", 13, "A"), W(3, "Y", 13, "B"),
+                    W(12, "Y", 14, "A"), W(13, "Y", 14, "B"), W(11, "Y", 20, "A"), W(14, "Y", 21, "A")]}
+    t = _js(tmp_path, f"E.truthTable({json.dumps(fa)})")
+    assert [i["name"] for i in t["inputs"]] == ["a", "b", "cin"] and len(t["rows"]) == 8
+    for a, b, c, s, co in t["rows"]:
+        assert s == a ^ b ^ c and co == (a + b + c) // 2
+    cout = [i for i, r in enumerate(t["rows"]) if r[4]]
+    assert _js(tmp_path, f"E.minimalSop(['a', 'b', 'cin'], {cout})") == "(a & b) | (a & cin) | (b & cin)"
+    assert _js(tmp_path, "E.minimalSop(['a', 'b', 'c', 'd'], [0, 2, 5, 7, 8, 10, 13, 15])") == "(!b & !d) | (b & d)"
+    assert _js(tmp_path, "[E.minimalSop(['a'], []), E.minimalSop(['a'], [0, 1]), E.minimalSop(['a', 'b'], [2, 3])]") \
+        == ["0", "1", "a"]
+    # buses: values per input, first input most significant
+    t = _js(tmp_path, f"E.truthTable({json.dumps(BLOCKS)}, 12)")
+    assert t["error"] == "sequential"                                  # BLOCKS has a register and a counter
+    add = {"nodes": [node(1, "in", name="x", bits=2), node(2, "in", name="y", bits=2), node(3, "add", bits=2),
+                     node(4, "out", name="s"), node(5, "out", name="c")],
+           "wires": [W(1, "Y", 3, "A"), W(2, "Y", 3, "B"), W(3, "S", 4, "A"), W(3, "COUT", 5, "A")]}
+    t = _js(tmp_path, f"E.truthTable({json.dumps(add)})")
+    assert t["rows"][7] == [1, 3, 0, 1] and len(t["rows"]) == 16       # 1 + 3 = 4: s = 0, carry 1
+    big = {"nodes": [node(1, "in", name="x", bits=11), node(2, "out", name="y")], "wires": [W(1, "Y", 2, "A")]}
+    assert _js(tmp_path, f"E.truthTable({json.dumps(big)})") == {"error": "too-big", "bits": 11, "max": 10}

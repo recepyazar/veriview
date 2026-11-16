@@ -120,6 +120,18 @@
   .rubber { fill: var(--accent); fill-opacity: 0.08; stroke: var(--accent); stroke-dasharray: 4 3; }
   #code { grid-area: code; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--border); }
   #code .head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .tabs { display: inline-flex; gap: 2px; }
+  .tabs .btn { padding: 2px 10px; }
+  #truth { flex: 1; overflow: auto; padding: 8px 10px; font-size: 13px; }
+  #truth table { border-collapse: collapse; font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #truth th, #truth td { border: 1px solid var(--border); padding: 2px 8px; text-align: center; }
+  #truth th { background: var(--bg); position: sticky; top: 0; }
+  #truth th.out, #truth td.out { background: var(--accent-soft); }
+  #truth td.one { font-weight: 700; color: var(--ok); }
+  #truth tr.now td { background: color-mix(in srgb, var(--sel) 30%, var(--panel)); }
+  #truth .sop { margin: 0 0 10px; font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #truth .sop b { color: var(--label); }
+  #truth .note { color: var(--muted); margin: 6px 0 10px; }
   #verilog { flex: 1; margin: 0; overflow: auto; padding: 10px 12px; font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
   #warnings { border-top: 1px solid var(--border); padding: 6px 10px; font-size: 12.5px; max-height: 25%; overflow: auto; }
   #warnings:empty { display: none; }
@@ -224,8 +236,13 @@
   </div>
 </div>
 <section id="code">
-  <div class="head"><b>Verilog</b><span class="spacer"></span><button class="btn" id="b-copy" data-t>Copy</button></div>
+  <div class="head"><div class="tabs" role="tablist">
+      <button class="btn on" id="tab-v" role="tab">Verilog</button>
+      <button class="btn" id="tab-t" role="tab" title="Every input combination and the outputs (combinational designs)" data-t>Truth table</button>
+    </div><span class="spacer"></span><button class="btn" id="b-copy" data-t>Copy</button>
+    <button class="btn" id="b-csv" hidden title="Download the truth table as CSV" data-t>⤓ CSV</button></div>
   <pre id="verilog"></pre>
+  <div id="truth" hidden></div>
   <div id="warnings"></div>
 </section>
 <footer id="status"></footer>
@@ -313,6 +330,14 @@ const EDITOR = /*__EDITOR_DATA__*/null;
     "Instance name": "Örnek (instance) adı", "module {m} from {f}": "{m} modülü, {f}",
     "module blocks are not simulated here (outputs 0): use 👁 View": "modül blokları burada simüle edilmez (çıkışlar 0): 👁 Görüntüle'yi kullan",
     "invalid module name {name}": "geçersiz modül adı {name}",
+    "Truth table": "Doğruluk tablosu", "⤓ CSV": "⤓ CSV",
+    "Every input combination and the outputs (combinational designs)": "Her giriş kombinasyonu ve çıkışlar (kombinasyonel devreler)",
+    "Download the truth table as CSV": "Doğruluk tablosunu CSV olarak indir",
+    "A truth table is for combinational designs: this drawing has flip-flops, registers or module blocks.":
+      "Doğruluk tablosu kombinasyonel devreler içindir: bu çizimde flip-flop, register ya da modül bloğu var.",
+    "Add inputs and outputs first.": "Önce giriş ve çıkış ekle.",
+    "{n} input bits: too many for a table (at most {m}).": "{n} giriş biti: tablo için fazla (en çok {m}).",
+    "~ : the outputs oscillate (a combinational loop)": "~ : çıkışlar salınıyor (kombinasyonel döngü)",
     "▶ Simulate": "▶ Simüle et", "■ Stop simulation": "■ Simülasyonu durdur",
     "Simulation: click inputs to change them, clock the registers, watch the wires": "Simülasyon: girişlere tıklayıp değiştir, register'ları saatle, telleri izle",
     "Clock": "Saat", "Step ⏵": "Adım ⏵", "One clock cycle (rising and falling edge)": "Bir saat çevrimi (yükselen ve düşen kenar)",
@@ -1013,7 +1038,62 @@ const EDITOR = /*__EDITOR_DATA__*/null;
   // ---- Verilog generation (editor_core.js, inlined above) ---------------------------------
   function verilog() { return VVEditor.toVerilog(D, $("modname").value, _t); }
   const KW = /\b(module|endmodule|input|output|wire|reg|assign|always|posedge|negedge|if|else)\b/g;
+  // ---- truth table (VVEditor.truthTable; combinational designs, up to 10 input bits) -------------
+  let truthOn = false, truthTimer = null, lastTable = null;
+  const bitNames = (ins) => ins.flatMap((i) => (i.bits === 1 ? [i.name] : Array.from({ length: i.bits }, (_, k) => `${i.name}[${i.bits - 1 - k}]`)));
+  function renderTruth() {
+    const box = $("truth"), t = VVEditor.truthTable(D, 10);
+    lastTable = t.error ? null : t;
+    $("b-csv").hidden = !lastTable;
+    if (t.error) {
+      box.innerHTML = `<p class="note">${esc(t.error === "sequential" ? _t("A truth table is for combinational designs: this drawing has flip-flops, registers or module blocks.")
+        : t.error === "empty" ? _t("Add inputs and outputs first.") : _t("{n} input bits: too many for a table (at most {m}).", { n: t.bits, m: t.max }))}</p>`;
+      return;
+    }
+    const names = bitNames(t.inputs), nIn = t.inputs.length, parts = [];
+    // a minimal sum of products for every 1-bit output (up to 8 input bits)
+    if (names.length <= 8) {
+      t.outputs.forEach((o, j) => {
+        if (o.bits !== 1) return;
+        const ms = t.rows.map((r, i) => (r[nIn + j] ? i : -1)).filter((i) => i >= 0);
+        parts.push(`<div><b>${esc(o.name)}</b> = ${esc(VVEditor.minimalSop(names, ms))}</div>`);
+      });
+    }
+    let cur = -1;
+    if (SIM) {   // the row of the current simulation inputs
+      const ins = D.nodes.filter((n) => n.type === "in");
+      cur = 0;
+      ins.forEach((n, i) => { cur = cur * 2 ** t.inputs[i].bits + Number(SIM.input(n.id)); });
+    }
+    const head = `<tr>${t.inputs.map((i) => `<th>${esc(i.name)}${i.bits > 1 ? `<small>[${i.bits - 1}:0]</small>` : ""}</th>`).join("")}` +
+      `${t.outputs.map((o) => `<th class="out">${esc(o.name)}${o.bits > 1 ? `<small>[${o.bits - 1}:0]</small>` : ""}</th>`).join("")}</tr>`;
+    const body = t.rows.map((r, i) => `<tr${i === cur ? ' class="now"' : ""}>` + r.map((v, k) => {
+      const one = (k < nIn ? t.inputs[k].bits : t.outputs[k - nIn].bits) === 1 && v === 1;
+      return `<td class="${k >= nIn ? "out" : ""}${one ? " one" : ""}">${v}${t.unstable.includes(i) && k >= nIn ? "~" : ""}</td>`;
+    }).join("") + "</tr>").join("");
+    box.innerHTML = (parts.length ? `<div class="sop">${parts.join("")}</div>` : "") +
+      (t.unstable.length ? `<p class="note">${esc(_t("~ : the outputs oscillate (a combinational loop)"))}</p>` : "") +
+      `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+    const now = box.querySelector("tr.now");
+    if (now) now.scrollIntoView({ block: "nearest" });
+  }
+  const scheduleTruth = () => { if (!truthOn) return; clearTimeout(truthTimer); truthTimer = setTimeout(renderTruth, 120); };
+  const showTab = (truth) => {
+    truthOn = truth;
+    $("tab-t").classList.toggle("on", truth); $("tab-v").classList.toggle("on", !truth);
+    $("truth").hidden = !truth; $("verilog").hidden = truth; $("b-copy").hidden = truth;
+    if (truth) renderTruth(); else $("b-csv").hidden = true;
+  };
+  $("tab-v").onclick = () => showTab(false);
+  $("tab-t").onclick = () => showTab(true);
+  $("b-csv").onclick = () => {
+    if (!lastTable) return;
+    const cols = [...lastTable.inputs, ...lastTable.outputs].map((c) => c.name);
+    download(`${$("modname").value || "design"}_truth.csv`, [cols.join(","), ...lastTable.rows.map((r) => r.join(","))].join("\n") + "\n", "text/csv");
+  };
+
   function generate() {
+    scheduleTruth();
     const { text, warn, mod } = verilog();
     const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
     $("verilog").innerHTML = text.split("\n").map((l) => {

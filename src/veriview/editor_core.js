@@ -420,5 +420,70 @@ function createSim(D0) {
   sim.width = (nd) => W(nd);
   return sim.update(D0);
 }
-const VVEditor = { createSim, isOptional, GATE2, BLOCK_TYPES, PORT_TYPES, SEQ_TYPES, AUTO, pinsOf, analyze, toVerilog, ident, defaultBits, clampBits };
+/* Truth table of a combinational drawing: every combination of the inputs (first input = most
+ * significant), simulated with createSim. {inputs, outputs, rows: [[in values..., out values...]],
+ * unstable: [row indices that oscillate]} or {error: "sequential" | "empty" | "too-big", ...}. */
+function truthTable(D, maxBits = 10) {
+  const seq = D.nodes.filter((n) => SEQ_TYPES.includes(n.type) || n.type === "inst");
+  if (seq.length) return { error: "sequential" };
+  const A = analyze(D);
+  const ins = D.nodes.filter((n) => n.type === "in"), outs = D.nodes.filter((n) => n.type === "out");
+  if (!ins.length || !outs.length) return { error: "empty" };
+  const inW = ins.map((n) => A.width(n)), total = inW.reduce((a, b) => a + b, 0);
+  if (total > maxBits) return { error: "too-big", bits: total, max: maxBits };
+  const sim = createSim(D), rows = [], unstable = [];
+  for (let v = 0; v < 2 ** total; v++) {
+    const vals = new Array(ins.length);
+    let rest = v;
+    for (let i = ins.length - 1; i >= 0; i--) { vals[i] = rest & ((1 << inW[i]) - 1); rest = Math.floor(rest / 2 ** inW[i]); }
+    ins.forEach((n, i) => sim.setInput(n.id, BigInt(vals[i])));
+    if (sim.unstable) unstable.push(v);
+    rows.push([...vals, ...outs.map((n) => Number(sim.pin(n, "A")))]);
+  }
+  return { inputs: ins.map((n, i) => ({ name: n.name, bits: inW[i] })), outputs: outs.map((n) => ({ name: n.name, bits: A.width(n) })), rows, unstable };
+}
+
+/* A minimal sum of products for the minterms of a function of `names` (Quine-McCluskey, prime
+ * implicants, essential ones first, then greedily). names[0] is the most significant bit. */
+function minimalSop(names, minterms) {
+  const n = names.length;
+  if (!minterms.length) return "0";
+  if (minterms.length === 2 ** n) return "1";
+  const str = (m) => m.toString(2).padStart(n, "0");
+  let groups = new Map(minterms.map((m) => [str(m), new Set([m])]));
+  const primes = [];
+  while (groups.size) {
+    const next = new Map(), used = new Set(), keys = [...groups.keys()];
+    for (let i = 0; i < keys.length; i++) {
+      for (let j = i + 1; j < keys.length; j++) {
+        const a = keys[i], b = keys[j];
+        let diff = -1, count = 0;
+        for (let k = 0; k < n; k++) if (a[k] !== b[k]) { count++; diff = k; }
+        if (count !== 1 || a[diff] === "-" || b[diff] === "-") continue;
+        const c = a.slice(0, diff) + "-" + a.slice(diff + 1);
+        next.set(c, new Set([...groups.get(a), ...groups.get(b)]));
+        used.add(a); used.add(b);
+      }
+    }
+    for (const k of keys) if (!used.has(k)) primes.push([k, groups.get(k)]);
+    groups = next;
+  }
+  const chosen = [], left = new Set(minterms);
+  for (const m of minterms) {   // essential prime implicants
+    const covering = primes.filter(([, ms]) => ms.has(m));
+    if (covering.length === 1 && !chosen.includes(covering[0])) chosen.push(covering[0]);
+  }
+  for (const [, ms] of chosen) for (const m of ms) left.delete(m);
+  while (left.size) {
+    let best = null, bestN = -1;
+    for (const p of primes) { const c = [...p[1]].filter((m) => left.has(m)).length; if (c > bestN || (c === bestN && p[0].split("-").length > best[0].split("-").length)) { best = p; bestN = c; } }
+    chosen.push(best);
+    for (const m of best[1]) left.delete(m);
+  }
+  const term = (pat) => [...pat].map((ch, k) => (ch === "1" ? names[k] : ch === "0" ? "!" + names[k] : null)).filter(Boolean).join(" & ") || "1";
+  const terms = chosen.map(([pat]) => term(pat)).sort();
+  return terms.length === 1 ? terms[0] : terms.map((t) => (t.includes("&") ? `(${t})` : t)).join(" | ");
+}
+
+const VVEditor = { truthTable, minimalSop, createSim, isOptional, GATE2, BLOCK_TYPES, PORT_TYPES, SEQ_TYPES, AUTO, pinsOf, analyze, toVerilog, ident, defaultBits, clampBits };
 if (typeof module !== "undefined" && module.exports) module.exports = VVEditor;

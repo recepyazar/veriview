@@ -96,6 +96,8 @@ Add `-t NAME` to make any module the top, e.g. a sub-block of the folder: `veriv
 
 **Module blocks.** *+ Module block…* (Modules) lists the Verilog modules of the folder, drawn designs included; the chosen one becomes a block with its ports (widths from Yosys, default parameters) and the Verilog instantiates it (`fa u1 (.a(...), ...)`). *👁 View* finds the module's file in the folder by itself. The editor's own simulation does not look inside module blocks (their outputs stay 0); the viewer simulates them.
 
+**Truth table.** The *Truth table* tab next to the Verilog lists every input combination of a combinational drawing (up to 10 input bits; buses as numbers) with its outputs, a minimal sum of products for each 1-bit output (Quine–McCluskey), the row of the current simulation inputs highlighted, and a CSV download.
+
 **Simulate while drawing.** **▶ Simulate** runs the drawing right in the editor (no Yosys needed): click an input to toggle it (or type a value for a bus), **Step** / **▶ Run** clock the registers, 1-valued wires light up and buses show their values, outputs and registers show theirs. Editing keeps the simulation running, so a change shows its effect at once. The editor's simulator is tested against the simulation of the generated Verilog.
 
 **Editing an existing design.** **✎ Edit** in a viewer opened from the start page changes the design itself:
